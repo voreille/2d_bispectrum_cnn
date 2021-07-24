@@ -87,24 +87,33 @@ class ECHConv2D(tf.keras.layers.Layer):
     def __init__(self,
                  streams,
                  kernel_size,
-                 max_degree=3,
+                 n_harmonics=4,
                  strides=1,
                  padding='valid',
                  initializer="random_normal",
-                 radial_profiles_sigma=0.25,
+                 radial_profile_type="complete_radial",
                  **kwargs):
         super().__init__(**kwargs)
         self.streams = streams
-        self.max_degree = max_degree
+        self.n_harmonics = n_harmonics
         self.n_radial_profiles = kernel_size // 2 + 1
-        self.conv_ch = CHConv2D(streams,
-                                max_degree,
-                                kernel_size,
-                                strides=strides,
-                                padding=padding,
-                                initializer=initializer,
-                                radial_profiles_sigma=radial_profiles_sigma,
-                                **kwargs)
+
+        if radial_profile_type == "complete":
+            self.conv_ch = CHConv2DComplete(streams,
+                                            n_harmonics,
+                                            kernel_size,
+                                            strides=strides,
+                                            padding=padding,
+                                            initializer=initializer,
+                                            **kwargs)
+        elif radial_profile_type == "complete_radial":
+            self.conv_ch = CHConv2DCompleteRadial(streams,
+                                                  n_harmonics,
+                                                  kernel_size,
+                                                  strides=strides,
+                                                  padding=padding,
+                                                  initializer=initializer,
+                                                  **kwargs)
 
     @property
     def output_channels(self):
@@ -113,7 +122,7 @@ class ECHConv2D(tf.keras.layers.Layer):
     def call(self, inputs):
         x = self.conv_ch(inputs)
         outputs = list()
-        for n in range(self.max_degree + 1):
+        for n in range(self.n_harmonics):
             energy = tf.math.real(x[..., n] * tf.math.conj(x[..., n]))
             outputs.append(energy)
         x = tf.concat(outputs, axis=-1)
@@ -169,7 +178,182 @@ class BCHConv2DComplex(tf.keras.layers.Layer):
         return x
 
 
-class CHConv2D(tf.keras.layers.Layer):
+class CHConv2DBase(tf.keras.layers.Layer):
+    def __init__(self,
+                 streams,
+                 n_harmonics,
+                 kernel_size,
+                 strides=1,
+                 padding='valid',
+                 initializer="random_normal",
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.streams = streams
+        self.n_harmonics = n_harmonics
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.padding = padding.upper()
+        self.atoms = self._atoms()
+        self.initializer = initializer
+
+    def call(self, inputs, training=None):
+        filters = self.filters
+        channels = tf.shape(filters)[2]
+        filters = tf.reshape(filters, (
+            self.kernel_size,
+            self.kernel_size,
+            channels,
+            self.streams * self.n_harmonics,
+        ))
+        feature_maps = conv2d_complex(inputs,
+                                      filters,
+                                      self.strides,
+                                      padding=self.padding)
+        batch_size, height, width, _ = tf.shape(feature_maps)
+        feature_maps = tf.reshape(feature_maps, (
+            batch_size,
+            height,
+            width,
+            self.streams,
+            self.n_harmonics,
+        ))
+        return feature_maps
+
+    def _atoms(self):
+        raise NotImplementedError("It is an abstrac class")
+
+
+class CHConv2DComplete(CHConv2DBase):
+    def _atoms(self):
+        kernel_profiles = self._compute_kernel_profiles()
+        kernel_size, _, n_profiles = kernel_profiles.shape
+        radius = (kernel_size - 1) // 2
+        x_grid = np.arange(-radius, radius + 1, 1)
+        x, y = np.meshgrid(x_grid, x_grid)
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x)
+        atoms0 = np.zeros((kernel_size, kernel_size, 1, 1, 1),
+                          dtype=np.csingle)
+        atoms0[self.kernel_size // 2, self.kernel_size // 2, 0] = 0.5
+        atoms = np.zeros(
+            (kernel_size, kernel_size, 1, 1, self.n_harmonics, n_profiles),
+            dtype=np.csingle,
+        )
+        for k, i in product(range(self.n_harmonics), range(n_profiles)):
+            atoms[:, :, 0, 0, k,
+                  i] = kernel_profiles[:, :, i] * np.exp(1j * k * theta)
+
+        norm = np.sqrt(np.sum(np.conj(atoms) * atoms, axis=(0, 1)))
+        norm[norm == 0] = 1
+        atoms = atoms / norm
+
+        return atoms0, atoms
+
+    def _compute_kernel_profiles(self):
+        radius_max = self.kernel_size // 2
+        n_profiles = radius_max**2 + radius_max
+        x_grid = np.arange(-radius_max, radius_max + 1, 1)
+        x, y = np.meshgrid(x_grid, x_grid)
+        theta = (np.arctan2(y, x) + 2 * np.pi) % (2 * np.pi)
+        r = np.sqrt(x**2 + y**2)
+        kernel_profiles = np.zeros(
+            (self.kernel_size, self.kernel_size, n_profiles))
+        theta_shifts = [k * np.pi / 2 for k in range(4)]
+        profile_counter = 0
+        for i in range(1, radius_max + 1):
+            n_pixels = 8 * i
+            d_theta = theta[np.where(((np.abs(x) == i) | (np.abs(y) == i))
+                                     & (r <= np.sqrt(2) * i))]
+            d_theta.sort()
+            d_theta = d_theta[:n_pixels // 4]
+            for dt in d_theta:
+                shifts = (dt + np.array(theta_shifts)) % (2 * np.pi)
+                for t in shifts:
+                    kernel_profiles[is_approx_equal(theta, t) &
+                                    ((np.abs(x) == i) | (np.abs(y) == i))
+                                    & (r <= np.sqrt(2) * i),
+                                    profile_counter] = 1
+                profile_counter += 1
+
+        return kernel_profiles
+
+    @property
+    def n_radial_profiles(self):
+        return self.atoms[1].shape[-1]
+
+    def build(self, input_shape):
+        self.w = self.add_weight(
+            shape=(
+                1,
+                1,
+                input_shape[-1],
+                self.streams,
+                self.n_harmonics,
+                self.n_radial_profiles,
+            ),
+            initializer=self.initializer,
+            trainable=True,
+        )
+        self.w0 = self.add_weight(
+            shape=(
+                1,
+                1,
+                input_shape[-1],
+                self.streams,
+                1,
+            ),
+            initializer=self.initializer,
+            trainable=True,
+        )
+
+    @property
+    def filters(self):
+        atoms0, atoms = self.atoms
+        w0 = tf.complex(self.w0, 0.0)
+        w = tf.complex(self.w, 0.0)
+        return w0 * atoms0 + tf.reduce_sum(w * atoms, axis=-1)
+
+
+class CHConv2DCompleteRadial(CHConv2DComplete):
+    def _compute_kernel_profiles(self):
+        radius_max = self.kernel_size // 2
+        n_profiles = radius_max**2 + radius_max
+        x_grid = np.arange(-radius_max, radius_max + 1, 1)
+        x, y = np.meshgrid(x_grid, x_grid)
+        theta = (np.arctan2(y, x) + 2 * np.pi) % (2 * np.pi)
+        r = np.sqrt(x**2 + y**2)
+        kernel_profiles = list()
+        disks = self._get_disks()
+        theta_shifts = [k * np.pi / 2 for k in range(4)]
+        for i in range(1, radius_max + 1):
+            d_theta = theta[disks[..., i] != 0]
+            n_pixels = d_theta.shape[0]
+            d_theta.sort()
+            d_theta = d_theta[:n_pixels // 4]
+            for dt in d_theta:
+                shifts = (dt + np.array(theta_shifts)) % (2 * np.pi)
+                kernel_profile = np.zeros(
+                        (self.kernel_size, self.kernel_size))
+                for t in shifts:
+                    kernel_profile[is_approx_equal(theta, t)
+                                   & (disks[..., i] != 0)] = 1
+                kernel_profiles.append(kernel_profile)
+
+        return np.stack(kernel_profiles, axis=-1)
+
+    def _get_disks(self):
+        radius_max = self.kernel_size // 2
+        n_profiles = radius_max + 1
+        x_grid = np.arange(-radius_max, radius_max + 1, 1)
+        x, y = np.meshgrid(x_grid, x_grid)
+        r = np.sqrt(x**2 + y**2)
+        disks = np.zeros((self.kernel_size, self.kernel_size, n_profiles))
+        for i in range(1, n_profiles):
+            disks[(r <= i) & (r > i - 1), i] = 1
+        return disks
+
+
+class CHConv2D_old(tf.keras.layers.Layer):
     def __init__(self,
                  streams,
                  max_degree,
@@ -264,10 +448,6 @@ class CHConv2D(tf.keras.layers.Layer):
         return tf.constant(atoms)
 
 
-def tri(x):
-    return np.where(np.abs(x) <= 1, np.where(x < 0, x + 1, 1 - x), 0)
-
-
 class ResidualLayer2D(tf.keras.layers.Layer):
     def __init__(self, *args, activation='relu', **kwargs):
         super().__init__()
@@ -303,3 +483,11 @@ def conv2d_complex(input, filters, strides, **kwargs):
 
     output = tf.nn.conv2d(input, filters_expanded, strides, **kwargs)
     return tf.complex(output[..., :out_channels], output[..., out_channels:])
+
+
+def is_approx_equal(x, y, epsilon=1e-3):
+    return np.abs(x - y) / (np.sqrt(np.abs(x) * np.abs(y)) + epsilon) < epsilon
+
+
+def tri(x):
+    return np.where(np.abs(x) <= 1, np.where(x < 0, x + 1, 1 - x), 0)
