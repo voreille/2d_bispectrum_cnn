@@ -12,7 +12,6 @@ layer = ECHConv2D(1, 9, initializer=tf.keras.initializers.Constant(1.0))
 
 atoms0, atoms = layer.conv_ch.atoms
 
-# %%
 phi = np.pi * 0.5
 rotation_factor = np.array([np.exp(1j * k * phi) for k in range(4)])
 
