@@ -1,7 +1,17 @@
+from imp import init_builtin
 from itertools import product
 
 import tensorflow as tf
 import numpy as np
+
+
+def get_lri_conv2d(*args, kind="bispectrum", **kwargs):
+    if kind == "bispectrum":
+        return BCHConv2D(*args, **kwargs)
+    elif kind == "spectrum":
+        return ECHConv2D(*args, **kwargs)
+    else:
+        raise ValueError(f"The kind {kind} is not supported")
 
 
 class SEBlock(tf.keras.layers.Layer):
@@ -27,60 +37,105 @@ class BCHConv2D(tf.keras.layers.Layer):
     def __init__(self,
                  streams,
                  kernel_size,
-                 max_degree=6,
+                 n_harmonics=4,
                  strides=1,
-                 padding='valid',
+                 padding='SAME',
                  initializer="random_normal",
                  use_bias=True,
-                 bias_initializer="random_normal",
-                 radial_profiles_sigma=0.25,
-                 activation="relu",
+                 bias_initializer="zeros",
+                 radial_profile_type="complete",
+                 preactivation="sqrt",
+                 activation="linear",
+                 proj_activation="relu",
+                 proj_initializer="glorot_uniform",
+                 is_transpose=False,
+                 project=True,
                  **kwargs):
         super().__init__(**kwargs)
         self.streams = streams
-        self.max_degree = max_degree
-        self.n_radial_profiles = kernel_size // 2 + 1
-        self.activation = tf.keras.layers.Activation(activation)
-        self.conv_ch = CHConv2D(streams,
-                                max_degree,
-                                kernel_size,
-                                strides=strides,
-                                padding=padding,
-                                initializer=initializer,
-                                radial_profiles_sigma=radial_profiles_sigma,
-                                **kwargs)
+        self.n_harmonics = n_harmonics
+        self.max_degree = n_harmonics - 1
+        self._output_channels = None
+        self._indices = None
+        # if preactivation == "sqrt":
+        #     self.preactivation = tf.math.sqrt
+        # else:
+        #     self.preactivation = None
+        self.activation = tf.keras.activations.get(activation)
 
-        self.use_bias = use_bias
+        self.conv_ch = CHConv2D.get(name=radial_profile_type)(
+            streams,
+            n_harmonics,
+            kernel_size,
+            strides=strides,
+            padding=padding,
+            initializer=initializer,
+            is_transpose=is_transpose,
+            **kwargs)
+
         if use_bias:
-            self.bias = self.add_weight(shape=(self.output_channels, ),
-                                        initializer=bias_initializer,
-                                        trainable=True)
+            self.bias = self.add_weight(
+                shape=(self.output_channels, ),
+                initializer=bias_initializer,
+                trainable=True,
+            )
         else:
             self.bias = None
 
+        if project:
+            self.proj_conv = tf.keras.layers.Conv2D(
+                streams,
+                1,
+                kernel_initializer=proj_initializer,
+                activation=proj_activation,
+                padding="SAME")
+        else:
+            self.proj_conv = None
+
     @property
     def output_channels(self):
-        # return ((self.degrees + 1) * (self.degrees + 2) * self.streams)
-        return ((self.max_degree // 2 + 1)**2 * self.streams)
+        if self._output_channels is None:
+            output_channels = 0
+            for n1, _ in self.indices:
+                if n1 == 0:
+                    output_channels += 1
+                else:
+                    output_channels += 2
+            self._output_channels = output_channels * self.streams
+
+        return self._output_channels
+
+    @property
+    def indices(self):
+        if self._indices is None:
+            self._indices = list()
+            if self.max_degree == 0:
+                self._indices.append((0, 0))
+            else:
+                for n1 in range(0, (self.max_degree - 1) // 2 + 1):
+                    for n2 in range(n1, self.max_degree - n1 + 1):
+                        self._indices.append((n1, n2))
+        return self._indices
 
     def call(self, inputs):
         x = self.conv_ch(inputs)
         outputs = list()
-        for n1 in range(self.max_degree // 2 + 1):
-            for n2 in range(n1, self.max_degree // 2 + 1):
-                bispectrum = (x[..., n1] * x[..., n2] *
-                              tf.math.conj(x[..., n1 + n2]))
-                if n1 == 0:
-                    outputs.append(tf.math.real(bispectrum))
-                else:
-                    outputs.append(tf.math.real(bispectrum))
-                    outputs.append(tf.math.imag(bispectrum))
+        for n1, n2 in self.indices:
+            bispectrum = (x[..., n1] * x[..., n2] *
+                          tf.math.conj(x[..., n1 + n2]))
+            if n1 == 0:
+                outputs.append(tf.math.real(bispectrum))
+            else:
+                outputs.append(tf.math.real(bispectrum))
+                outputs.append(tf.math.imag(bispectrum))
         x = tf.concat(outputs, axis=-1)
-        # x = tf.concat([tf.math.real(x), tf.math.imag(x)], axis=-1)
-        if self.use_bias:
-            x = tf.nn.bias_add(x, self.bias)
-
-        return self.activation(x)
+        x = tf.math.sign(x) * tf.math.log(1 + tf.math.abs(x))
+        if self.bias is not None:
+            x = x + self.bias
+        x = self.activation(x)
+        if self.proj_conv is not None:
+            x = self.proj_conv(x)
+        return x
 
 
 class ECHConv2D(tf.keras.layers.Layer):
@@ -89,83 +144,76 @@ class ECHConv2D(tf.keras.layers.Layer):
                  kernel_size,
                  n_harmonics=4,
                  strides=1,
-                 padding='valid',
+                 padding='SAME',
                  initializer="random_normal",
-                 radial_profile_type="complete_radial",
+                 use_bias=True,
+                 bias_initializer="zeros",
+                 radial_profile_type="complete",
+                 preactivation="sqrt",
+                 activation="linear",
+                 proj_activation="relu",
+                 proj_initializer="glorot_uniform",
                  is_transpose=False,
+                 project=True,
                  **kwargs):
         super().__init__(**kwargs)
         self.streams = streams
         self.n_harmonics = n_harmonics
+        # if preactivation == "sqrt":
+        #     self.preactivation = tf.math.sqrt
+        # else:
+        # self.preactivation = None
+        self.activation = tf.keras.activations.get(activation)
 
-        if radial_profile_type == "complete":
-            self.conv_ch = CHConv2DComplete(streams,
-                                            n_harmonics,
-                                            kernel_size,
-                                            strides=strides,
-                                            padding=padding,
-                                            initializer=initializer,
-                                            is_transpose=is_transpose,
-                                            **kwargs)
-        elif radial_profile_type == "complete_radial":
-            self.conv_ch = CHConv2DCompleteRadial(streams,
-                                                  n_harmonics,
-                                                  kernel_size,
-                                                  strides=strides,
-                                                  padding=padding,
-                                                  initializer=initializer,
-                                                  is_transpose=is_transpose,
-                                                  **kwargs)
-
-    @property
-    def output_channels(self):
-        return self.max_degree + 1
-
-    def call(self, inputs):
-        x = self.conv_ch(inputs)
-        outputs = list()
-        for n in range(self.n_harmonics):
-            energy = tf.math.abs(x[..., n] * tf.math.conj(x[..., n]))
-            outputs.append(energy)
-        x = tf.concat(outputs, axis=-1)
-        return tf.math.sqrt(x)
-
-
-class ECHConv2DTranspose(tf.keras.layers.Layer):
-    def __init__(self,
-                 streams,
-                 kernel_size,
-                 n_harmonics=4,
-                 strides=1,
-                 padding='valid',
-                 initializer="random_normal",
-                 **kwargs):
-        super().__init__(**kwargs)
-        self.streams = streams
-        self.n_harmonics = n_harmonics
-
-        self.conv_ch = CHConv2DTransposeCompleteRadial(
+        self.conv_ch = CHConv2D.get(name=radial_profile_type)(
             streams,
             n_harmonics,
             kernel_size,
             strides=strides,
             padding=padding,
             initializer=initializer,
-            **kwargs,
-        )
+            is_transpose=is_transpose,
+            **kwargs)
+
+        if use_bias:
+            self.bias = self.add_weight(
+                shape=(self.output_channels, ),
+                initializer=bias_initializer,
+                trainable=True,
+            )
+        else:
+            self.bias = None
+
+        if project:
+            self.proj_conv = tf.keras.layers.Conv2D(
+                streams,
+                1,
+                kernel_initializer=proj_initializer,
+                activation=proj_activation,
+                padding="SAME")
+        else:
+            self.proj_conv = None
 
     @property
     def output_channels(self):
-        return self.max_degree + 1
+        return self.n_harmonics * self.streams
 
     def call(self, inputs):
         x = self.conv_ch(inputs)
         outputs = list()
         for n in range(self.n_harmonics):
-            energy = tf.math.abs(x[..., n] * tf.math.conj(x[..., n]))
+            energy = tf.math.real(x[..., n] * tf.math.conj(x[..., n]))
             outputs.append(energy)
         x = tf.concat(outputs, axis=-1)
-        return tf.math.sqrt(x)
+        # if self.preactivation is not None:
+        #     x = self.preactivation(x)
+        x = tf.math.log(1 + x)
+        if self.bias is not None:
+            x = x + self.bias
+        x = self.activation(x)
+        if self.proj_conv is not None:
+            x = self.proj_conv(x)
+        return x
 
 
 class BCHConv2DComplex(tf.keras.layers.Layer):
@@ -227,7 +275,18 @@ class BCHConv2DComplex(tf.keras.layers.Layer):
         return x
 
 
-class CHConv2DBase(tf.keras.layers.Layer):
+class CHConv2D(tf.keras.layers.Layer):
+    _registry = {}  # class var that store the different daughter
+
+    def __init_subclass__(cls, name, **kwargs):
+        cls.name = name
+        CHConv2D._registry[name] = cls
+        super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def get(cls, name: str):
+        return CHConv2D._registry[name]
+
     def __init__(self,
                  streams,
                  n_harmonics,
@@ -263,7 +322,12 @@ class CHConv2DBase(tf.keras.layers.Layer):
                                         filters,
                                         self.strides,
                                         padding=self.padding)
-        batch_size, height, width, _ = tf.shape(feature_maps)
+
+        # tf is too dumb for tf.shape(...)[:3]
+        batch_size = tf.shape(feature_maps)[0]
+        height = tf.shape(feature_maps)[1]
+        width = tf.shape(feature_maps)[2]
+
         feature_maps = tf.reshape(feature_maps, (
             batch_size,
             height,
@@ -276,8 +340,12 @@ class CHConv2DBase(tf.keras.layers.Layer):
     def _atoms(self):
         raise NotImplementedError("It is an abstrac class")
 
+    @property
+    def filters(self):
+        raise NotImplementedError("It is an abstrac class")
 
-class CHConv2DComplete(CHConv2DBase):
+
+class CHConv2DComplete(CHConv2D, name="complete"):
     def _atoms(self):
         kernel_profiles = self._compute_kernel_profiles()
         kernel_size, _, n_profiles = kernel_profiles.shape
@@ -364,12 +432,35 @@ class CHConv2DComplete(CHConv2DBase):
         atoms0, atoms = self.atoms
         w0 = tf.complex(self.w0, 0.0)
         w = tf.complex(self.w, 0.0)
-        factor = tf.constant([1, 0, 0, 0], dtype=tf.complex64)
-        factor = tf.reshape(factor, (1, 1, 1, 1, 4))
+        factor = tf.concat(
+            [
+                tf.ones((1, ), dtype=tf.complex64),
+                tf.zeros((self.n_harmonics - 1, ), dtype=tf.complex64)
+            ],
+            axis=0,
+        )
+        factor = tf.reshape(factor, (1, 1, 1, 1, self.n_harmonics))
         return w0 * atoms0 * factor + tf.reduce_sum(w * atoms, axis=-1)
 
 
-class CHConv2DCompleteRadial(CHConv2DComplete):
+class CHConv2DOnDisks(CHConv2DComplete, name="disks"):
+    def _compute_kernel_profiles(self):
+        if self.kernel_size == 3:
+            disks = np.ones((3, 3, 1))
+            disks[1, 1, 0] = 0
+            return disks
+        radius_max = self.kernel_size // 2
+        n_profiles = radius_max + 1
+        x_grid = np.arange(-radius_max, radius_max + 1, 1)
+        x, y = np.meshgrid(x_grid, x_grid)
+        r = np.sqrt(x**2 + y**2)
+        disks = np.zeros((self.kernel_size, self.kernel_size, n_profiles))
+        for i in range(1, n_profiles):
+            disks[(r <= np.sqrt(2) * i) & (r > i - 1), i] = 1
+        return disks
+
+
+class CHConv2DCompleteRadial(CHConv2DComplete, name="complete_radial"):
     def _compute_kernel_profiles(self):
         radius_max = self.kernel_size // 2
         x_grid = np.arange(-radius_max, radius_max + 1, 1)
@@ -511,13 +602,15 @@ class ResidualLayer2D(tf.keras.layers.Layer):
         self.bn_1 = tf.keras.layers.BatchNormalization()
         self.bn_2 = None
         self.proj = None
+        self.strides = kwargs.get("strides", 1)
 
     def build(self, input_shape):
         self.c_in = input_shape[1]
         if input_shape[1] != self.filters:
             self.proj = tf.keras.layers.Conv2D(self.filters,
                                                1,
-                                               activation=self.activation)
+                                               activation=self.activation,
+                                               strides=self.strides)
             self.bn_2 = tf.keras.layers.BatchNormalization()
 
     def call(self, x, training=None):
@@ -527,7 +620,40 @@ class ResidualLayer2D(tf.keras.layers.Layer):
             return self.bn_1(self.conv(x)) + x
 
 
-@tf.function
+class ResidualLRILayer2D(tf.keras.layers.Layer):
+    def __init__(self, *args, kind="bispectrum", activation="relu", **kwargs):
+        super().__init__()
+        self.filters = args[0]
+        self.conv = get_lri_conv2d(*args,
+                                   **kwargs,
+                                   activation=activation,
+                                   kind=kind)
+        self.strides = kwargs.get("strides", 1)
+        self.activation = activation
+        self.bn_1 = tf.keras.layers.BatchNormalization()
+        self.bn_2 = None
+        self.proj = None
+
+    def build(self, input_shape):
+        self.c_in = input_shape[1]
+        if input_shape[1] != self.filters:
+            self.proj = tf.keras.layers.Conv2D(
+                self.filters,
+                1,
+                activation=self.activation,
+                strides=self.strides,
+                padding="SAME",
+            )
+            self.bn_2 = tf.keras.layers.BatchNormalization()
+
+    def call(self, x, training=None):
+        if self.proj:
+            return self.bn_1(self.conv(x)) + self.bn_2(self.proj(x))
+        else:
+            return self.bn_1(self.conv(x)) + x
+
+
+# @tf.function
 def conv2d_complex(input, filters, strides, **kwargs):
     out_channels = tf.shape(filters)[-1]
     filters_expanded = tf.concat(
@@ -551,7 +677,9 @@ def conv2d_transpose_complex(input, filters, strides, **kwargs):
 def conv2d_transpose(input, filters, strides, **kwargs):
     filter_height, filter_width, _, out_channels = filters.get_shape().as_list(
     )
-    batch_size, in_height, in_width, _ = input.get_shape().as_list()
+    batch_size = tf.shape(input)[0]
+    in_height = tf.shape(input)[1]
+    in_width = tf.shape(input)[2]
     if type(strides) is int:
         stride_h = strides
         stride_w = strides
@@ -563,12 +691,11 @@ def conv2d_transpose(input, filters, strides, **kwargs):
         output_size_h = (in_height - 1) * stride_h + filter_height
         output_size_w = (in_width - 1) * stride_w + filter_width
     elif padding == 'SAME':
-        output_size_h = (in_height - 1) * stride_h + 1
-        output_size_w = (in_width - 1) * stride_w + 1
+        output_size_h = in_height * stride_h
+        output_size_w = in_width * stride_w
     else:
         raise ValueError("unknown padding")
-    output_shape = tf.stack(
-        [batch_size, output_size_h, output_size_w, out_channels])
+    output_shape = (batch_size, output_size_h, output_size_w, out_channels)
 
     return tf.nn.conv2d_transpose(input, tf.transpose(filters, (0, 1, 3, 2)),
                                   output_shape, strides, **kwargs)

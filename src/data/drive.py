@@ -58,6 +58,21 @@ def load_binary_mask(path):
     return tf.where(mask > 0, x=1.0, y=0.0)
 
 
+def tf_random_flip(image, mask, segmentation):
+    im_shape = image.shape
+    mask_shape = mask.shape
+    seg_shape = segmentation.shape
+    [image, mask,
+     segmentation] = tf.py_function(random_flip, [image, mask, segmentation],
+                                    [tf.float32, tf.float32, tf.float32])
+    image.set_shape(im_shape)
+    mask.set_shape(mask_shape)
+    segmentation.set_shape(seg_shape)
+    mask = tf.where(mask > 0.5, x=1.0, y=0.0)
+    segmentation = tf.where(segmentation > 0.5, x=1.0, y=0.0)
+    return image, mask, segmentation
+
+
 def tf_random_rotate(image, mask, segmentation):
     im_shape = image.shape
     mask_shape = mask.shape
@@ -71,6 +86,20 @@ def tf_random_rotate(image, mask, segmentation):
     mask = tf.where(mask > 0.5, x=1.0, y=0.0)
     segmentation = tf.where(segmentation > 0.5, x=1.0, y=0.0)
     return image, mask, segmentation
+
+
+def random_flip(*images):
+    random_flip_1 = np.random.rand() > 0.5
+    random_flip_2 = np.random.rand() > 0.5
+    output_images = list()
+    for image in images:
+        output_image = image
+        if random_flip_1:
+            output_image = image[::-1, :]
+        if random_flip_2:
+            output_image = output_image[:, ::-1]
+        output_images.append(output_image)
+    return output_images
 
 
 def random_rotate(*images):
