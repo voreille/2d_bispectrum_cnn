@@ -1,31 +1,16 @@
 import os
-from functools import partial
 from random import shuffle
 import datetime
+import json
 
 import tensorflow as tf
-from tensorflow.keras import callbacks
-from tensorflow_addons.losses import sigmoid_focal_crossentropy
-
 import click
+from tensorflow.python.keras.metrics import AUC
 
-from src.models.models import (Unet, LRIUnet, UnetLight, SpectUnetLight,
-                               BispectUnetLight)
-from src.models.loss import dice_coe_loss, dice_coe_metric
+from src.models.models import get_model
+from src.models.loss import loss_with_fl, dice_coe_metric, dice_coe_loss
 from src.data.drive import (get_dataset, tf_random_crop, tf_random_rotate,
                             tf_random_flip)
-
-
-def loss_with_fl(y_true, y_pred):
-    return dice_coe_loss(y_true, y_pred) + tf.reduce_mean(
-        sigmoid_focal_crossentropy(
-            y_true,
-            y_pred,
-            from_logits=False,
-            alpha=0.25,
-            gamma=2.0,
-        ),
-        axis=(1, 2))
 
 
 def augment(image):
@@ -34,7 +19,9 @@ def augment(image):
 
 
 @click.command()
-@click.option('--model_name', type=click.STRING, default="BispectUnetLightDisk")
+@click.option('--model_name',
+              type=click.STRING,
+              default="BispectUnetLightDisk")
 @click.option('--rotation/--no-rotation', default=True)
 @click.option('--augmentation/--no-augmentation', default=True)
 @click.option('--focal_loss/--no-focal_loss', default=True)
@@ -44,24 +31,6 @@ def augment(image):
 def main(model_name, rotation, cuda_core_id, augmentation, focal_loss,
          cosine_decay, n_harmonics):
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_core_id
-    model_dict = {
-        "Unet":
-        Unet,
-        "SpectUnet":
-        partial(LRIUnet, kind="spectrum", n_harmonics=n_harmonics),
-        "BispectUnet":
-        partial(LRIUnet, kind="bispectrum", n_harmonics=n_harmonics),
-        "UnetLight":
-        UnetLight,
-        "SpectUnetLight":
-        partial(SpectUnetLight, n_harmonics=n_harmonics),
-        "BispectUnetLight":
-        partial(BispectUnetLight, n_harmonics=n_harmonics),
-        "BispectUnetLightDisk":
-        partial(BispectUnetLight,
-                n_harmonics=n_harmonics,
-                radial_profile_type="disks"),
-    }
 
     image_ids = [i for i in range(21, 41)]
     shuffle(image_ids)
@@ -115,32 +84,16 @@ def main(model_name, rotation, cuda_core_id, augmentation, focal_loss,
     pred_callback = tf.keras.callbacks.LambdaCallback(
         on_epoch_end=log_prediction)
 
-    if cosine_decay:
-        lr = tf.keras.experimental.CosineDecayRestarts(
-            1e-3,
-            4500,
-            t_mul=2.0,
-            m_mul=1.0,
-            alpha=0.0,
-        )
-
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
-    else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
-    model = model_dict[model_name](output_channels=1)
-
-    # model = LRIUnet(output_channels=1)
     if focal_loss:
         loss = loss_with_fl
     else:
         loss = dice_coe_loss
 
-    model.compile(
-        loss=[loss],
-        optimizer=optimizer,
-        metrics=[dice_coe_metric, tf.keras.metrics.AUC()],
-        run_eagerly=False,
-    )
+    model = get_model(model_name=model_name,
+                      loss=loss,
+                      metrics=[dice_coe_metric, AUC()],
+                      n_harmonics=n_harmonics,
+                      cosine_decay=cosine_decay)
     model.fit(
         x=ds_train,
         epochs=1000,

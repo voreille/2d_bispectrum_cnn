@@ -1,4 +1,17 @@
 import tensorflow as tf
+from tensorflow_addons.losses import sigmoid_focal_crossentropy
+
+
+def loss_with_fl(y_true, y_pred):
+    return dice_coe_loss(y_true, y_pred) + tf.reduce_mean(
+        sigmoid_focal_crossentropy(
+            y_true,
+            y_pred,
+            from_logits=False,
+            alpha=0.25,
+            gamma=2.0,
+        ),
+        axis=(1, 2))
 
 
 def dice_coe_loss(y_true, y_pred, loss_type='sorensen', smooth=1.):

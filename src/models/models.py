@@ -1,6 +1,58 @@
+from functools import partial
+
 import tensorflow as tf
 from src.models.layers import (ResidualLayer2D, ResidualLRILayer2D,
                                get_lri_conv2d)
+
+
+def get_model(
+    model_name="UnetLight",
+    loss=None,
+    metrics=None,
+    n_harmonics=4,
+    cosine_decay=True,
+    run_eagerly=False,
+):
+    model_dict = {
+        "Unet":
+        Unet,
+        "SpectUnet":
+        partial(LRIUnet, kind="spectrum", n_harmonics=n_harmonics),
+        "BispectUnet":
+        partial(LRIUnet, kind="bispectrum", n_harmonics=n_harmonics),
+        "UnetLight":
+        UnetLight,
+        "SpectUnetLight":
+        partial(SpectUnetLight, n_harmonics=n_harmonics),
+        "BispectUnetLight":
+        partial(BispectUnetLight, n_harmonics=n_harmonics),
+        "BispectUnetLightDisk":
+        partial(BispectUnetLight,
+                n_harmonics=n_harmonics,
+                radial_profile_type="disks"),
+    }
+
+    if cosine_decay:
+        lr = tf.keras.experimental.CosineDecayRestarts(
+            1e-3,
+            4500,
+            t_mul=2.0,
+            m_mul=1.0,
+            alpha=0.0,
+        )
+
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+    else:
+        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+    model = model_dict[model_name](output_channels=1)
+
+    model.compile(
+        loss=[loss],
+        optimizer=optimizer,
+        metrics=metrics,
+        run_eagerly=run_eagerly,
+    )
+    return model
 
 
 class LRIUnet(tf.keras.Model):
