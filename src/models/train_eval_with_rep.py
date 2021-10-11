@@ -23,9 +23,7 @@ def augment(image):
 
 
 @click.command()
-@click.option('--model_name',
-              type=click.STRING,
-              default="BispectUnetLightDisk")
+@click.option('--model_name', type=click.STRING, default="UnetLight")
 @click.option('--rotation/--no-rotation', default=True)
 @click.option('--augmentation/--no-augmentation', default=True)
 @click.option('--focal_loss/--no-focal_loss', default=True)
@@ -113,9 +111,9 @@ def main(model_name, rotation, cuda_core_id, augmentation, focal_loss,
                           cosine_decay=cosine_decay)
 
         es_callback = EarlyStopping(
-            minimal_num_of_epochs=150,
+            minimal_num_of_epochs=1,
             monitor='val_dice_coe_metric',
-            patience=10,
+            patience=1,
             verbose=0,
             mode='max',
             restore_best_weights=True,
@@ -142,7 +140,7 @@ def main(model_name, rotation, cuda_core_id, augmentation, focal_loss,
                 "test_dsc": res_test[1],
                 "test_auc": res_test[2],
                 "repetition": k,
-                "epoch": history.params["epochs"],
+                "epochs": len(history.history["loss"]),
                 "steps_per_epoch": history.params["steps"],
             },
             ignore_index=True,

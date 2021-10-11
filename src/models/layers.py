@@ -445,18 +445,13 @@ class CHConv2DComplete(CHConv2D, name="complete"):
 
 class CHConv2DOnDisks(CHConv2DComplete, name="disks"):
     def _compute_kernel_profiles(self):
-        if self.kernel_size == 3:
-            disks = np.ones((3, 3, 1))
-            disks[1, 1, 0] = 0
-            return disks
         radius_max = self.kernel_size // 2
-        n_profiles = radius_max + 1
         x_grid = np.arange(-radius_max, radius_max + 1, 1)
         x, y = np.meshgrid(x_grid, x_grid)
         r = np.sqrt(x**2 + y**2)
-        disks = np.zeros((self.kernel_size, self.kernel_size, n_profiles))
-        for i in range(1, n_profiles):
-            disks[(r <= np.sqrt(2) * i) & (r > i - 1), i] = 1
+        disks = np.zeros((self.kernel_size, self.kernel_size, radius_max))
+        for i in range(0, radius_max):
+            disks[..., i] = tri(r - (i + 1))
         return disks
 
 
@@ -606,7 +601,7 @@ class ResidualLayer2D(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.c_in = input_shape[1]
-        if input_shape[1] != self.filters:
+        if input_shape[-1] != self.filters:
             self.proj = tf.keras.layers.Conv2D(self.filters,
                                                1,
                                                activation=self.activation,
@@ -636,7 +631,7 @@ class ResidualLRILayer2D(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.c_in = input_shape[1]
-        if input_shape[1] != self.filters:
+        if input_shape[-1] != self.filters:  # or self.strides == 2 ??
             self.proj = tf.keras.layers.Conv2D(
                 self.filters,
                 1,
@@ -663,7 +658,7 @@ def conv2d_complex(input, filters, strides, **kwargs):
     return tf.complex(output[..., :out_channels], output[..., out_channels:])
 
 
-@tf.function
+# @tf.function
 def conv2d_transpose_complex(input, filters, strides, **kwargs):
     out_channels = tf.shape(filters)[-1]
     filters_expanded = tf.concat(
@@ -673,7 +668,7 @@ def conv2d_transpose_complex(input, filters, strides, **kwargs):
     return tf.complex(output[..., :out_channels], output[..., out_channels:])
 
 
-@tf.function
+# @tf.function
 def conv2d_transpose(input, filters, strides, **kwargs):
     filter_height, filter_width, _, out_channels = filters.get_shape().as_list(
     )

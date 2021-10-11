@@ -159,13 +159,18 @@ class UnetLightBase(tf.keras.Model):
     def __init__(self, *args, output_channels=3, **kwargs):
         super().__init__(*args, **kwargs)
         self.down_stack = [
-            self.get_first_block(16),
+            self.get_first_block(8),
+            self.get_down_block(16),
             self.get_down_block(32),
             self.get_down_block(64),
             self.get_down_block(128),
-            self.get_down_block(256),
         ]
-        self.up_stack = [UpBlock(128), UpBlock(64), UpBlock(32), UpBlock(16)]
+        self.up_stack = [
+            self.get_up_block(64),
+            self.get_up_block(32),
+            self.get_up_block(16),
+            self.get_up_block(8)
+        ]
 
         self.last = tf.keras.Sequential([
             tf.keras.layers.Conv2D(output_channels,
@@ -183,7 +188,7 @@ class UnetLightBase(tf.keras.Model):
     def get_down_block(self, filters):
         raise NotImplementedError()
 
-    def get_up_block(self, filters, trans_conv=True, n_conv=2):
+    def get_up_block(self, filters, n_conv=2):
         raise NotImplementedError()
 
     def call(self, inputs, training=None):
@@ -246,27 +251,11 @@ class LRIUnetLightBase(UnetLightBase):
                                padding='SAME'),
         ])
 
-    def get_up_block(self, filters, trans_conv=True, n_conv=2):
-        block = tf.keras.Sequential()
-        if trans_conv:
-            block.add(
-                get_lri_conv2d(filters,
-                               3,
-                               strides=2,
-                               radial_profile_type=self.radial_profile_type,
-                               padding='SAME',
-                               kind=self.kind,
+    def get_up_block(self, filters, n_conv=2):
+        return LRIUpBlockLight(filters,
+                               n_conv=n_conv,
                                n_harmonics=self.n_harmonics,
-                               is_transpose=True))
-        for _ in range(n_conv):
-            block.add(
-                get_lri_conv2d(filters,
-                               3,
-                               radial_profile_type=self.radial_profile_type,
-                               kind=self.kind,
-                               n_harmonics=self.n_harmonics,
-                               padding='SAME'))
-        return block
+                               kind=self.kind)
 
 
 class SpectUnetLight(LRIUnetLightBase):
@@ -294,18 +283,8 @@ class UnetLight(UnetLightBase):
             ResidualLayer2D(filters, 3, padding='SAME'),
         ])
 
-    def get_up_block(self, filters, trans_conv=True, n_conv=2):
-        block = tf.keras.Sequential()
-        if trans_conv:
-            block.add(
-                tf.keras.layers.Conv2DTranspose(filters,
-                                                3,
-                                                strides=2,
-                                                padding='SAME'))
-        for _ in range(n_conv):
-            block.add(tf.keras.layers.Conv2D(filters, 3, padding='SAME'))
-
-        return block
+    def get_up_block(self, filters, n_conv=2):
+        return UpBlockLight(filters, n_conv=n_conv)
 
 
 class Unet(tf.keras.Model):
@@ -437,6 +416,45 @@ class UpBlockLight(tf.keras.layers.Layer):
                                                           strides=(2, 2),
                                                           padding='SAME',
                                                           activation='relu')
+        self.concat = tf.keras.layers.Concatenate()
+
+    def call(self, inputs, training=None):
+        x, skip = inputs
+        x = self.trans_conv(x)
+        x = self.concat([x, skip])
+        return self.conv(x)
+
+
+class LRIUpBlockLight(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters,
+                 *args,
+                 n_harmonics=4,
+                 n_conv=2,
+                 kind="bispectrum",
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.conv = tf.keras.Sequential()
+        for k in range(n_conv):
+            self.conv.add(
+                get_lri_conv2d(filters,
+                               3,
+                               padding='SAME',
+                               activation='relu',
+                               n_harmonics=n_harmonics,
+                               kind=kind), )
+        self.trans_conv = get_lri_conv2d(
+            filters,
+            3,
+            strides=(2, 2),
+            padding='SAME',
+            activation='relu',
+            n_harmonics=n_harmonics,
+            is_transpose=True,
+            kind=kind,
+        )
+        # self.trans_conv = tf.keras.layers.UpSampling2D(
+        # interpolation="bilinear")
         self.concat = tf.keras.layers.Concatenate()
 
     def call(self, inputs, training=None):
