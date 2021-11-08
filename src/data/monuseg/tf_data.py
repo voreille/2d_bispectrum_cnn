@@ -100,7 +100,8 @@ def load_image(image_id, data_path="", is_test=False):
         )
         segmentation = tf.concat([segmentation, contour, background], axis=-1)
     else:
-        segmentation = load_image_tif(path_segmentation)
+        segmentation = load_image_tif(path_segmentation,
+                                      normalizing_factor=255.0)
 
     return image, segmentation
 

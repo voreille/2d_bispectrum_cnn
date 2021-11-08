@@ -85,6 +85,10 @@ target/
 *.swp
 *.swo
 
+# numpy
+*.npy
+*.npz
+
 # Mypy cache
 .mypy_cache/
 
