@@ -1,5 +1,6 @@
 from imp import init_builtin
 from itertools import product
+import warnings
 
 import tensorflow as tf
 import numpy as np
@@ -345,6 +346,71 @@ class CHConv2D(tf.keras.layers.Layer):
         raise NotImplementedError("It is an abstrac class")
 
 
+class CHConv2D2x2(CHConv2D, name="2x2"):
+    def __init__(self,
+                 streams,
+                 n_harmonics,
+                 kernel_size,
+                 strides=1,
+                 padding='valid',
+                 initializer="random_normal",
+                 is_transpose=False,
+                 **kwargs):
+        super().__init__(streams,
+                         n_harmonics,
+                         2,
+                         strides=strides,
+                         padding=padding,
+                         initializer=initializer,
+                         is_transpose=is_transpose,
+                         **kwargs)
+        if kernel_size != 2:
+            warnings.warn("The layer CHConv2D2x2 only accept kernel_size=2")
+
+        self._n_radial_profiles = 1
+
+    def _atoms(self):
+        kernel_profile = np.ones((2, 2))
+        x_grid = np.array([-1, 1])
+        x, y = np.meshgrid(x_grid, x_grid)
+        theta = np.arctan2(y, x)
+        atoms = np.zeros(
+            (2, 2, 1, 1, self.n_harmonics, 1),
+            dtype=np.csingle,
+        )
+        for k in range(self.n_harmonics):
+            atoms[:, :, 0, 0, k, 0] = kernel_profile * np.exp(1j * k * theta)
+
+        norm = np.sqrt(np.sum(np.conj(atoms) * atoms, axis=(0, 1)))
+        norm[norm == 0] = 1
+        atoms = atoms / norm
+
+        return tf.constant(atoms)
+
+    @property
+    def n_radial_profiles(self):
+        return self._n_radial_profiles
+
+    def build(self, input_shape):
+        self.w = self.add_weight(
+            shape=(
+                1,
+                1,
+                input_shape[-1],
+                self.streams,
+                self.n_harmonics,
+                1,
+            ),
+            initializer=self.initializer,
+            trainable=True,
+        )
+
+    @property
+    def filters(self):
+        w = tf.complex(self.w, 0.0)
+        return tf.reduce_sum(w * self.atoms, axis=-1)
+
+
 class CHConv2DComplete(CHConv2D, name="complete"):
     def _atoms(self):
         kernel_profiles = self._compute_kernel_profiles()
@@ -368,7 +434,7 @@ class CHConv2DComplete(CHConv2D, name="complete"):
         norm[norm == 0] = 1
         atoms = atoms / norm
 
-        return atoms0, atoms
+        return tf.constant(atoms0), tf.constant(atoms)
 
     def _compute_kernel_profiles(self):
         radius_max = self.kernel_size // 2

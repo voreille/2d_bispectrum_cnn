@@ -19,12 +19,6 @@ def get_model(
     last_activation="sigmoid",
 ):
     model_dict = {
-        "Unet":
-        Unet,
-        "SpectUnet":
-        partial(LRIUnet, kind="spectrum", n_harmonics=n_harmonics),
-        "BispectUnet":
-        partial(LRIUnet, kind="bispectrum", n_harmonics=n_harmonics),
         "UnetLight":
         UnetLight,
         "SpectUnetLight":
@@ -62,107 +56,6 @@ def get_model(
     return model
 
 
-class LRIUnet(tf.keras.Model):
-    def __init__(self,
-                 *args,
-                 output_channels=3,
-                 last_activation="sigmoid",
-                 kind="bispectrum",
-                 n_harmonics=4,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.n_harmonics = n_harmonics
-        self.down_stack = [
-            self.get_first_block(24, kind),
-            self.get_down_block(48, kind),
-            self.get_down_block(96, kind),
-            self.get_down_block(192, kind),
-            self.get_down_block(384, kind),
-        ]
-
-        self.up_stack = [
-            LRIUpBlock(192,
-                       upsampling_factor=8,
-                       kind=kind,
-                       n_harmonics=n_harmonics),
-            LRIUpBlock(96,
-                       upsampling_factor=4,
-                       kind=kind,
-                       n_harmonics=n_harmonics),
-            LRIUpBlock(48,
-                       upsampling_factor=2,
-                       kind=kind,
-                       n_harmonics=n_harmonics),
-            LRIUpBlock(24, n_conv=1, kind=kind, n_harmonics=n_harmonics),
-        ]
-        self.last = tf.keras.Sequential([
-            get_lri_conv2d(24,
-                           3,
-                           activation='relu',
-                           kind=kind,
-                           padding='SAME',
-                           n_harmonics=n_harmonics),
-            tf.keras.layers.Conv2D(output_channels,
-                                   1,
-                                   activation=last_activation,
-                                   padding='SAME'),
-        ])
-
-    def get_first_block(self, filters, kind):
-        return tf.keras.Sequential([
-            ResidualLRILayer2D(filters,
-                               7,
-                               padding='SAME',
-                               kind=kind,
-                               radial_profile_type="complete_radial",
-                               n_harmonics=self.n_harmonics),
-            ResidualLRILayer2D(filters,
-                               3,
-                               padding='SAME',
-                               kind=kind,
-                               n_harmonics=self.n_harmonics),
-        ])
-
-    def get_down_block(self, filters, kind):
-        return tf.keras.Sequential([
-            tf.keras.layers.MaxPool2D(pool_size=(2, 2), padding='SAME'),
-            ResidualLRILayer2D(filters,
-                               3,
-                               padding='SAME',
-                               kind=kind,
-                               n_harmonics=self.n_harmonics),
-            ResidualLRILayer2D(filters,
-                               3,
-                               padding='SAME',
-                               kind=kind,
-                               n_harmonics=self.n_harmonics),
-            ResidualLRILayer2D(filters,
-                               3,
-                               padding='SAME',
-                               kind=kind,
-                               n_harmonics=self.n_harmonics),
-        ])
-
-    def call(self, inputs, training=None):
-        x = inputs
-        skips = []
-        for block in self.down_stack:
-            x = block(x, training=training)
-            skips.append(x)
-
-        skips = reversed(skips[:-1])
-        xs_upsampled = []
-
-        for block, skip in zip(self.up_stack, skips):
-            x = block((x, skip), training=training)
-            if type(x) is tuple:
-                x, x_upsampled = x
-                xs_upsampled.append(x_upsampled)
-
-        x += tf.add_n(xs_upsampled)
-        return self.last(x)
-
-
 class UnetLightBase(tf.keras.Model):
     def __init__(self,
                  *args,
@@ -198,13 +91,20 @@ class UnetLightBase(tf.keras.Model):
 
     def predict_monuseg(self, x):
         y_pred = self.predict(x)
+        y_pred_quantized = (y_pred > 0.5).astype(np.uint8)
+        # y_pred_quantized = np.zeros_like(y_pred, dtype=np.uint8)
+        # y_pred_quantized[..., 1] = (y_pred[..., 1] > 0.5).astype(np.uint8)
+        # y_pred_quantized[..., 0] = (y_pred[..., 0] > 0.5).astype(np.uint8)
+        # y_pred_quantized[..., 2] = (y_pred[..., 2] > 0.5).astype(np.uint8)
         batch_size = y_pred.shape[0]
         output = list()
         for s in range(batch_size):
-            markers = label(y_pred[s, :, :, 0])
-            markers[y_pred[s, :, :, 2] != 0] = -1
-            output.append(
-                watershed_ift((y_pred[s, :, :, 1]).astype(np.uint8), markers))
+            markers = label(y_pred_quantized[s, :, :, 0])
+            markers[y_pred_quantized[s, :, :, 2] != 0] = -1
+            out = watershed_ift(
+                (y_pred_quantized[s, :, :, 1]).astype(np.uint8), markers)
+            out[out == -1] = 0
+            output.append(out)
         return np.stack(output, axis=0)
 
     def call(self, inputs, training=None):
@@ -303,124 +203,6 @@ class UnetLight(UnetLightBase):
         return UpBlockLight(filters, n_conv=n_conv)
 
 
-class Unet(tf.keras.Model):
-    def __init__(self,
-                 *args,
-                 output_channels=3,
-                 last_activation="sigmoid",
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.down_stack = [
-            self.get_first_block(24),
-            self.get_down_block(48),
-            self.get_down_block(96),
-            self.get_down_block(192),
-            self.get_down_block(384),
-        ]
-
-        self.up_stack = [
-            UpBlock(192, upsampling_factor=8),
-            UpBlock(96, upsampling_factor=4),
-            UpBlock(48, upsampling_factor=2),
-            UpBlock(24, n_conv=1),
-        ]
-        self.last = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(24, 3, activation='relu', padding='SAME'),
-            tf.keras.layers.Conv2D(output_channels,
-                                   1,
-                                   activation=last_activation,
-                                   padding='SAME'),
-        ])
-
-    def get_first_block(self, filters):
-        return tf.keras.Sequential([
-            ResidualLayer2D(filters, 7, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-        ])
-
-    def get_down_block(self, filters):
-        return tf.keras.Sequential([
-            tf.keras.layers.MaxPool2D(pool_size=(2, 2), padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-        ])
-
-    def call(self, inputs, training=None):
-        x = inputs
-        skips = []
-        for block in self.down_stack:
-            x = block(x, training=training)
-            skips.append(x)
-
-        skips = reversed(skips[:-1])
-        xs_upsampled = []
-
-        for block, skip in zip(self.up_stack, skips):
-            x = block((x, skip), training=training)
-            if type(x) is tuple:
-                x, x_upsampled = x
-                xs_upsampled.append(x_upsampled)
-
-        x += tf.add_n(xs_upsampled)
-        return self.last(x)
-
-
-class LRIUpBlock(tf.keras.layers.Layer):
-    def __init__(self,
-                 filters,
-                 *args,
-                 upsampling_factor=1,
-                 filters_output=24,
-                 n_harmonics=4,
-                 n_conv=2,
-                 kind="bispectrum",
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.upsampling_factor = upsampling_factor
-        self.conv = tf.keras.Sequential()
-        for k in range(n_conv):
-            self.conv.add(
-                get_lri_conv2d(filters,
-                               3,
-                               padding='SAME',
-                               activation='relu',
-                               n_harmonics=n_harmonics,
-                               kind=kind), )
-        self.trans_conv = get_lri_conv2d(
-            filters,
-            3,
-            strides=(2, 2),
-            padding='SAME',
-            activation='relu',
-            n_harmonics=n_harmonics,
-            is_transpose=True,
-            kind=kind,
-        )
-        self.concat = tf.keras.layers.Concatenate()
-        if upsampling_factor != 1:
-            self.upsampling = tf.keras.Sequential([
-                tf.keras.layers.Conv2D(filters_output,
-                                       1,
-                                       padding='SAME',
-                                       activation='relu'),
-                tf.keras.layers.UpSampling2D(size=(upsampling_factor,
-                                                   upsampling_factor)),
-            ])
-        else:
-            self.upsampling = None
-
-    def call(self, inputs, training=None):
-        x, skip = inputs
-        x = self.trans_conv(x)
-        x = self.concat([x, skip])
-        x = self.conv(x)
-        if self.upsampling:
-            return x, self.upsampling(x)
-        else:
-            return x
-
-
 class UpBlockLight(tf.keras.layers.Layer):
     def __init__(self, filters, *args, n_conv=2, **kwargs):
         super().__init__(*args, **kwargs)
@@ -432,7 +214,7 @@ class UpBlockLight(tf.keras.layers.Layer):
                                        padding='SAME',
                                        activation='relu'), )
         self.trans_conv = tf.keras.layers.Conv2DTranspose(filters,
-                                                          5,
+                                                          2,
                                                           strides=(2, 2),
                                                           padding='SAME',
                                                           activation='relu')
@@ -463,16 +245,15 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
                                activation='relu',
                                n_harmonics=n_harmonics,
                                kind=kind), )
-        self.trans_conv = get_lri_conv2d(
-            filters,
-            2,
-            strides=(2, 2),
-            padding='SAME',
-            activation='relu',
-            n_harmonics=n_harmonics,
-            is_transpose=True,
-            kind=kind,
-        )
+        self.trans_conv = get_lri_conv2d(filters,
+                                         2,
+                                         strides=(2, 2),
+                                         padding='SAME',
+                                         activation='relu',
+                                         n_harmonics=n_harmonics,
+                                         is_transpose=True,
+                                         kind=kind,
+                                         radial_profile_type="2x2")
         # self.trans_conv = tf.keras.layers.UpSampling2D(
         # interpolation="bilinear")
         self.concat = tf.keras.layers.Concatenate()
@@ -482,117 +263,6 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
         x = self.trans_conv(x)
         x = self.concat([x, skip])
         return self.conv(x)
-
-
-class UpBlock(tf.keras.layers.Layer):
-    def __init__(self,
-                 filters,
-                 *args,
-                 upsampling_factor=1,
-                 filters_output=24,
-                 n_conv=2,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        self.upsampling_factor = upsampling_factor
-        self.conv = tf.keras.Sequential()
-        for k in range(n_conv):
-            self.conv.add(
-                tf.keras.layers.Conv2D(filters,
-                                       3,
-                                       padding='SAME',
-                                       activation='relu'), )
-        self.trans_conv = tf.keras.layers.Conv2DTranspose(filters,
-                                                          2,
-                                                          strides=(2, 2),
-                                                          padding='SAME',
-                                                          activation='relu')
-        self.concat = tf.keras.layers.Concatenate()
-        if upsampling_factor != 1:
-            self.upsampling = tf.keras.Sequential([
-                tf.keras.layers.Conv2D(filters_output,
-                                       1,
-                                       padding='SAME',
-                                       activation='relu'),
-                tf.keras.layers.UpSampling2D(size=(upsampling_factor,
-                                                   upsampling_factor)),
-            ])
-        else:
-            self.upsampling = None
-
-    def call(self, inputs, training=None):
-        x, skip = inputs
-        x = self.trans_conv(x)
-        x = self.concat([x, skip])
-        x = self.conv(x)
-        if self.upsampling:
-            return x, self.upsampling(x)
-        else:
-            return x
-
-
-class UnetClassif(tf.keras.Model):
-    def __init__(self, *args, output_channels=3, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.down_stack = [
-            self.get_first_block(24),
-            self.get_down_block(48),
-            self.get_down_block(96),
-            self.get_down_block(192),
-            self.get_down_block(384),
-        ]
-
-        self.up_stack = [
-            UpBlock(192, upsampling_factor=8),
-            UpBlock(96, upsampling_factor=4),
-            UpBlock(48, upsampling_factor=2),
-            UpBlock(24, n_conv=1),
-        ]
-        self.last = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(24, 3, activation='relu', padding='SAME'),
-            tf.keras.layers.Conv2D(output_channels,
-                                   1,
-                                   activation='sigmoid',
-                                   padding='SAME'),
-        ])
-        self.classifier = tf.keras.Sequential([
-            tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(128, activation="relu"),
-            tf.keras.layers.Dense(2, activation="softmax"),
-        ])
-
-    def get_first_block(self, filters):
-        return tf.keras.Sequential([
-            ResidualLayer2D(filters, 7, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-        ])
-
-    def get_down_block(self, filters):
-        return tf.keras.Sequential([
-            tf.keras.layers.MaxPool2D(pool_size=(2, 2), padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-            ResidualLayer2D(filters, 3, padding='SAME'),
-        ])
-
-    def call(self, inputs, training=None):
-        x = inputs
-        skips = []
-        for block in self.down_stack:
-            x = block(x, training=training)
-            skips.append(x)
-
-        x_classif = self.classifier(x, training=training)
-        skips = reversed(skips[:-1])
-        xs_upsampled = []
-
-        for block, skip in zip(self.up_stack, skips):
-            x = block((x, skip), training=training)
-            if type(x) is tuple:
-                x, x_upsampled = x
-                xs_upsampled.append(x_upsampled)
-
-        x += tf.add_n(xs_upsampled)
-        return self.last(x), x_classif
 
 
 def upsample(filters, size, apply_dropout=False):

@@ -5,8 +5,8 @@ def aggregated_jaccard_index(y_true, y_pred):
     y_true_indices = np.unique(y_true)
     y_pred_indices = np.unique(y_pred)
 
-    y_true_indices = np.deletete(y_true_indices, y_true_indices == 0)
-    y_pred_indices = np.deletete(y_pred_indices, y_pred_indices == 0)
+    y_true_indices = np.delete(y_true_indices, y_true_indices == 0)
+    y_pred_indices = np.delete(y_pred_indices, y_pred_indices == 0)
 
     overall_correct_count = 0
     union_pixel_count = 0
@@ -20,8 +20,8 @@ def aggregated_jaccard_index(y_true, y_pred):
             continue
         else:
             pred_nuclei_indices = np.unique(y_pred_match)
-            pred_nuclei_indices = np.deletete(pred_nuclei_indices,
-                                              pred_nuclei_indices == 0)
+            pred_nuclei_indices = np.delete(pred_nuclei_indices,
+                                            pred_nuclei_indices == 0)
             jaccard_index = 0
             for j in pred_nuclei_indices:
                 matched = y_pred == j
@@ -57,6 +57,7 @@ def f_score(y_true, y_pred):
     n_true_nuclei = len(y_true_indices)
 
     true_positive = 0
+    matched_pred_indices = list()
     for i in y_true_indices:
         nuclei_mask = y_true == i
         y_pred_match = nuclei_mask * y_pred
@@ -69,11 +70,14 @@ def f_score(y_true, y_pred):
             pred_nuclei_indices = np.delete(pred_nuclei_indices,
                                             pred_nuclei_indices == 0)
             for j in pred_nuclei_indices:
-                if np.sum(y_pred_match == j) > 0.5 * nuclei_area:
+                if (np.sum(y_pred_match == j) > 0.5 * nuclei_area
+                        and j not in matched_pred_indices):
                     true_positive += 1
+                    matched_pred_indices.append(j)
                     continue
     false_positive = n_pred_nuclei - true_positive
     false_negative = n_true_nuclei - true_positive
+    fscore = true_positive / (true_positive + 0.5 *
+                              (false_positive + false_negative))
 
-    return true_positive / (true_positive + 0.5 *
-                            (false_positive + false_negative))
+    return fscore

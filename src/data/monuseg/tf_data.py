@@ -14,6 +14,7 @@ def get_dataset(
     id_list=None,
     data_path="/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training",
     is_test=False,
+    instance=False,
 ):
     data_path = Path(data_path).resolve()
 
@@ -22,12 +23,18 @@ def get_dataset(
     if id_list is not None:
         image_ids = [i for i in image_ids if i in id_list]
 
-    def _load_image(image_id):
-        return load_image(
-            image_id,
-            data_path=data_path,
-            is_test=is_test,
-        )
+    if instance:
+
+        def _load_image(image_id):
+            return load_image_instance(image_id, data_path=data_path)
+    else:
+
+        def _load_image(image_id):
+            return load_image(
+                image_id,
+                data_path=data_path,
+                is_test=is_test,
+            )
 
     return tf.data.Dataset.from_tensor_slices(image_ids).map(_load_image)
 
@@ -104,6 +111,31 @@ def load_image(image_id, data_path="", is_test=False):
                                       normalizing_factor=255.0)
 
     return image, segmentation
+
+
+def load_image_instance(image_id, data_path=""):
+    image_dir = str(data_path / "Images_normalized")
+    segmentation_dir = str(data_path / "MasksV2_instance/binary")
+
+    path_image = tf.strings.join([image_dir, "/", image_id, ".tiff"])
+    path_segmentation = tf.strings.join(
+        [segmentation_dir, "/", image_id, ".npy"])
+
+    image = load_image_tif(path_image, normalizing_factor=255.0)
+    segmentation = tf_load_npy_file(path_segmentation)
+
+    return image, segmentation
+
+
+def tf_load_npy_file(path):
+    [out] = tf.py_function(load_npy_file, [path], [tf.int64])
+    return out
+
+
+def load_npy_file(item):
+    data = np.load(item.numpy().decode("utf-8"))
+    data = data[..., np.newaxis]
+    return data.astype(np.int64)
 
 
 def load_image_tif(path, normalizing_factor=1.0):
