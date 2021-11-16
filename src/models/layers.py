@@ -1,4 +1,3 @@
-from imp import init_builtin
 from itertools import product
 import warnings
 
@@ -79,6 +78,7 @@ class BCHConv2D(tf.keras.layers.Layer):
                 shape=(self.output_channels, ),
                 initializer=bias_initializer,
                 trainable=True,
+                name="bias_bchconv2d",
             )
         else:
             self.bias = None
@@ -181,6 +181,7 @@ class ECHConv2D(tf.keras.layers.Layer):
                 shape=(self.output_channels, ),
                 initializer=bias_initializer,
                 trainable=True,
+                name="bias_echconv2d",
             )
         else:
             self.bias = None
@@ -403,6 +404,7 @@ class CHConv2D2x2(CHConv2D, name="2x2"):
             ),
             initializer=self.initializer,
             trainable=True,
+            name="w_profile",
         )
 
     @property
@@ -480,6 +482,7 @@ class CHConv2DComplete(CHConv2D, name="complete"):
             ),
             initializer=self.initializer,
             trainable=True,
+            name="w_profile",
         )
         self.w0 = self.add_weight(
             shape=(
@@ -491,6 +494,7 @@ class CHConv2DComplete(CHConv2D, name="complete"):
             ),
             initializer=self.initializer,
             trainable=True,
+            name="w0_profile",
         )
 
     @property
@@ -590,6 +594,7 @@ class CHConv2D_old(tf.keras.layers.Layer):
             ),
             initializer=self.initializer,
             trainable=True,
+            name="w_profile",
         )
 
     @property

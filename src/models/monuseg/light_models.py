@@ -78,34 +78,13 @@ class UnetLightBase(tf.keras.Model):
         ])
 
     def get_first_block(self, filters):
-        return tf.keras.Sequential([
-            ResidualLayer2D(filters, 5, padding='SAME'),
-            ResidualLayer2D(filters, 5, padding='SAME'),
-        ])
+        raise NotImplementedError()
 
     def get_down_block(self, filters):
         raise NotImplementedError()
 
     def get_up_block(self, filters, n_conv=2):
         raise NotImplementedError()
-
-    def predict_monuseg(self, x):
-        y_pred = self.predict(x)
-        y_pred_quantized = (y_pred > 0.5).astype(np.uint8)
-        # y_pred_quantized = np.zeros_like(y_pred, dtype=np.uint8)
-        # y_pred_quantized[..., 1] = (y_pred[..., 1] > 0.5).astype(np.uint8)
-        # y_pred_quantized[..., 0] = (y_pred[..., 0] > 0.5).astype(np.uint8)
-        # y_pred_quantized[..., 2] = (y_pred[..., 2] > 0.5).astype(np.uint8)
-        batch_size = y_pred.shape[0]
-        output = list()
-        for s in range(batch_size):
-            markers = label(y_pred_quantized[s, :, :, 0])
-            markers[y_pred_quantized[s, :, :, 2] != 0] = -1
-            out = watershed_ift(
-                (y_pred_quantized[s, :, :, 1]).astype(np.uint8), markers)
-            out[out == -1] = 0
-            output.append(out)
-        return np.stack(output, axis=0)
 
     def call(self, inputs, training=None):
         x = inputs
@@ -137,13 +116,13 @@ class LRIUnetLightBase(UnetLightBase):
     def get_first_block(self, filters):
         return tf.keras.Sequential([
             ResidualLRILayer2D(filters,
-                               7,
-                               radial_profile_type="complete",
+                               5,
+                               radial_profile_type="disks",
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
                                padding='SAME'),
             ResidualLRILayer2D(filters,
-                               3,
+                               5,
                                radial_profile_type=self.radial_profile_type,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
@@ -153,17 +132,17 @@ class LRIUnetLightBase(UnetLightBase):
     def get_down_block(self, filters):
         return tf.keras.Sequential([
             ResidualLRILayer2D(filters,
-                               3,
+                               5,
                                strides=2,
-                               radial_profile_type=self.radial_profile_type,
+                               radial_profile_type="disks",
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
                                padding='SAME'),
             ResidualLRILayer2D(filters,
-                               3,
+                               5,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
-                               radial_profile_type=self.radial_profile_type,
+                               radial_profile_type="disks",
                                padding='SAME'),
         ])
 
@@ -240,10 +219,11 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
         for k in range(n_conv):
             self.conv.add(
                 get_lri_conv2d(filters,
-                               3,
+                               5,
                                padding='SAME',
                                activation='relu',
                                n_harmonics=n_harmonics,
+                               radial_profile_type="disks",
                                kind=kind), )
         self.trans_conv = get_lri_conv2d(filters,
                                          2,
@@ -254,8 +234,6 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
                                          is_transpose=True,
                                          kind=kind,
                                          radial_profile_type="2x2")
-        # self.trans_conv = tf.keras.layers.UpSampling2D(
-        # interpolation="bilinear")
         self.concat = tf.keras.layers.Concatenate()
 
     def call(self, inputs, training=None):

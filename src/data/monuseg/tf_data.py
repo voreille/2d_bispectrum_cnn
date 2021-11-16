@@ -75,7 +75,7 @@ def get_split(csv_path=info_tissue_path):
         shuffle(ids)
         ids_train.extend(ids[:3])
         ids_val.extend([ids[3]])
-        ids_test.extend(ids[4:5])
+        ids_test.extend(ids[4:])
     return ids_train, ids_val, ids_test
 
 
@@ -128,14 +128,14 @@ def load_image_instance(image_id, data_path=""):
 
 
 def tf_load_npy_file(path):
-    [out] = tf.py_function(load_npy_file, [path], [tf.int64])
+    [out] = tf.py_function(load_npy_file, [path], [tf.float32])
     return out
 
 
 def load_npy_file(item):
     data = np.load(item.numpy().decode("utf-8"))
     data = data[..., np.newaxis]
-    return data.astype(np.int64)
+    return data.astype(np.float32)
 
 
 def load_image_tif(path, normalizing_factor=1.0):
