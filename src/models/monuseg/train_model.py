@@ -13,7 +13,7 @@ from wrapt.wrappers import wrap_object
 import yaml
 import pandas as pd
 
-from src.models.monuseg.light_models import get_model
+from src.models.monuseg.models import get_model
 from src.models.loss import dice_coe_loss
 from src.data.monuseg.tf_data import (get_dataset, tf_random_crop,
                                       tf_random_flip, get_split)
@@ -155,11 +155,7 @@ def train_one_split(
     n_train = params["n_train"]
     n_feature_maps = params["n_feature_maps"]
     cosine_decay = params["cosine_decay"]
-    padding = params["padding"]
-    if padding == "VALID":
-        cropper = tf.keras.layers.Cropping2D(cropping=(10, 10))
-    else:
-        cropper = None
+    cropper = tf.keras.layers.Cropping2D(cropping=(20, 20))
 
     with open(path_indices, "r") as f:
         indices_list = json.load(f)
@@ -200,7 +196,7 @@ def train_one_split(
         val_segs = tf.concat(val_segs, 0)
 
         log_dir = (
-            "/home/valentin/python_wkspce/2d_bispectrum_cnn/logs/fit_monuseg/"
+            "/home/valentin/python_wkspce/2d_bispectrum_cnn/logs/fit_monuseg_lafarge/"
             + dir_name)
 
         callbacks.append(
@@ -234,7 +230,7 @@ def train_one_split(
             tf.keras.callbacks.LambdaCallback(on_epoch_end=log_prediction),
             tf.keras.callbacks.LambdaCallback(on_epoch_end=log_eval),
             EarlyStopping(
-                minimal_num_of_epochs=200,
+                minimal_num_of_epochs=10,
                 monitor='val_fscore',
                 patience=15,
                 verbose=0,
@@ -252,6 +248,9 @@ def train_one_split(
         n_feature_maps=n_feature_maps,
         last_activation="softmax",
         run_eagerly=False)
+    x, y_true = next(ds_train.as_numpy_iterator())
+    y_pred = model(x)
+    print(f"predicted shape is {y_pred.shape}")
     model.fit(
         x=ds_train,
         epochs=200,

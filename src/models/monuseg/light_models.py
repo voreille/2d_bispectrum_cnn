@@ -69,7 +69,6 @@ class UnetLightBase(tf.keras.Model):
                  output_channels=3,
                  last_activation="softmax",
                  n_feature_maps=[8, 16, 32],
-                 padding="SAME",
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.down_stack = [self.get_first_block(n_feature_maps[0])]
@@ -82,7 +81,6 @@ class UnetLightBase(tf.keras.Model):
                                    activation=last_activation,
                                    padding='SAME'),
         ])
-        self.padding = padding
 
     def get_first_block(self, filters):
         raise NotImplementedError()
@@ -127,13 +125,13 @@ class LRIUnetLightBase(UnetLightBase):
                                radial_profile_type=self.radial_profile_type,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
-                               padding=self.padding),
+                               padding='SAME'),
             ResidualLRILayer2D(filters,
                                5,
                                radial_profile_type=self.radial_profile_type,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
-                               padding=self.padding),
+                               padding='SAME'),
         ])
 
     def get_down_block(self, filters):
@@ -144,13 +142,13 @@ class LRIUnetLightBase(UnetLightBase):
                                radial_profile_type=self.radial_profile_type,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
-                               padding=self.padding),
+                               padding='SAME'),
             ResidualLRILayer2D(filters,
                                5,
                                kind=self.kind,
                                n_harmonics=self.n_harmonics,
                                radial_profile_type=self.radial_profile_type,
-                               padding=self.padding),
+                               padding='SAME'),
         ])
 
     def get_up_block(self, filters, n_conv=2):
@@ -176,14 +174,14 @@ class BispectUnetLight(LRIUnetLightBase):
 class UnetLight(UnetLightBase):
     def get_first_block(self, filters):
         return tf.keras.Sequential([
-            ResidualLayer2D(filters, 5, padding=self.padding),
-            ResidualLayer2D(filters, 5, padding=self.padding),
+            ResidualLayer2D(filters, 5, padding='SAME'),
+            ResidualLayer2D(filters, 5, padding='SAME'),
         ])
 
     def get_down_block(self, filters):
         return tf.keras.Sequential([
-            ResidualLayer2D(filters, 5, strides=2, padding=self.padding),
-            ResidualLayer2D(filters, 5, padding=self.padding),
+            ResidualLayer2D(filters, 5, strides=2, padding='SAME'),
+            ResidualLayer2D(filters, 5, padding='SAME'),
         ])
 
     def get_up_block(self, filters, n_conv=2):
@@ -191,19 +189,19 @@ class UnetLight(UnetLightBase):
 
 
 class UpBlockLight(tf.keras.layers.Layer):
-    def __init__(self, filters, *args, n_conv=2, padding="SAME", **kwargs):
+    def __init__(self, filters, *args, n_conv=2, **kwargs):
         super().__init__(*args, **kwargs)
         self.conv = tf.keras.Sequential()
         for _ in range(n_conv):
             self.conv.add(
                 tf.keras.layers.Conv2D(filters,
                                        5,
-                                       padding=padding,
+                                       padding='SAME',
                                        activation='relu'), )
         self.trans_conv = tf.keras.layers.Conv2DTranspose(filters,
                                                           2,
                                                           strides=(2, 2),
-                                                          padding=padding,
+                                                          padding='SAME',
                                                           activation='relu')
         self.concat = tf.keras.layers.Concatenate()
 
@@ -222,7 +220,6 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
                  n_conv=2,
                  kind="bispectrum",
                  radial_profile_type="disks",
-                 padding="SAME",
                  **kwargs):
         super().__init__(*args, **kwargs)
         self.conv = tf.keras.Sequential()
@@ -230,7 +227,7 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
             self.conv.add(
                 get_lri_conv2d(filters,
                                5,
-                               padding=padding,
+                               padding='SAME',
                                activation='relu',
                                n_harmonics=n_harmonics,
                                radial_profile_type=radial_profile_type,
@@ -238,7 +235,7 @@ class LRIUpBlockLight(tf.keras.layers.Layer):
         self.trans_conv = get_lri_conv2d(filters,
                                          2,
                                          strides=(2, 2),
-                                         padding=padding,
+                                         padding='SAME',
                                          activation='relu',
                                          n_harmonics=n_harmonics,
                                          is_transpose=True,
