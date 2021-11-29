@@ -393,6 +393,7 @@ class CHConv2D2x2(CHConv2D, name="2x2"):
         return self._n_radial_profiles
 
     def build(self, input_shape):
+        limit = limit_glorot(input_shape[-1], self.streams)
         self.w = self.add_weight(
             shape=(
                 1,
@@ -402,7 +403,8 @@ class CHConv2D2x2(CHConv2D, name="2x2"):
                 self.n_harmonics,
                 1,
             ),
-            initializer=self.initializer,
+            initializer=tf.keras.initializers.RandomUniform(minval=-limit,
+                                                            maxval=limit),
             trainable=True,
             name="w_profile",
         )
@@ -471,6 +473,7 @@ class CHConv2DComplete(CHConv2D, name="complete"):
         return self.atoms[1].shape[-1]
 
     def build(self, input_shape):
+        limit = limit_glorot(input_shape[-1], self.streams)
         self.w = self.add_weight(
             shape=(
                 1,
@@ -480,7 +483,8 @@ class CHConv2DComplete(CHConv2D, name="complete"):
                 self.n_harmonics,
                 self.n_radial_profiles,
             ),
-            initializer=self.initializer,
+            initializer=tf.keras.initializers.RandomUniform(minval=-limit,
+                                                            maxval=limit),
             trainable=True,
             name="w_profile",
         )
@@ -492,7 +496,8 @@ class CHConv2DComplete(CHConv2D, name="complete"):
                 self.streams,
                 1,
             ),
-            initializer=self.initializer,
+            initializer=tf.keras.initializers.RandomUniform(minval=-limit,
+                                                            maxval=limit),
             trainable=True,
             name="w0_profile",
         )
@@ -583,6 +588,7 @@ class CHConv2D_old(tf.keras.layers.Layer):
         self.initializer = initializer
 
     def build(self, input_shape):
+        limit = limit_glorot(input_shape[-1], self.streams)
         self.w = self.add_weight(
             shape=(
                 1,
@@ -592,7 +598,8 @@ class CHConv2D_old(tf.keras.layers.Layer):
                 self.max_degree + 1,
                 self.n_radial_profiles,
             ),
-            initializer=self.initializer,
+            initializer=tf.keras.initializers.RandomUniform(minval=-limit,
+                                                            maxval=limit),
             trainable=True,
             name="w_profile",
         )
@@ -773,3 +780,7 @@ def is_approx_equal(x, y, epsilon=1e-3):
 
 def tri(x):
     return np.where(np.abs(x) <= 1, np.where(x < 0, x + 1, 1 - x), 0)
+
+
+def limit_glorot(c_in, c_out):
+    return np.sqrt(6 / (c_in + c_out))
