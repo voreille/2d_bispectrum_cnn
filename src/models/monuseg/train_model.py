@@ -74,6 +74,22 @@ def print_config(params, model, output_path=""):
         model.summary(print_fn=lambda s: print(s, file=f))
 
 
+def config_gpu():
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
+        try:
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [tf.config.LogicalDeviceConfiguration(memory_limit=1024)])
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus),
+                  "Logical GPUs")
+        except RuntimeError as e:
+            # Virtual devices must be set before GPUs have been initialized
+            print(e)
+
+
 @click.command()
 @click.option("--config",
               type=click.Path(exists=True),
@@ -90,6 +106,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
          n_harmonics, batch_size):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
+    config_gpu()
     output_path = Path(output_path)
 
     with open(config, 'r') as f:
