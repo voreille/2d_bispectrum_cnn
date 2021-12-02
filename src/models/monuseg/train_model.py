@@ -17,7 +17,7 @@ from src.models.callbacks import EarlyStopping
 
 image_dir = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training/Images_normalized"
 path_indices = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/indices/monuseg.json"
-default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/bispectunet_default.yaml"
+default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/unet_default.yaml"
 
 DEBUG = False
 
@@ -81,7 +81,7 @@ def config_gpu():
         try:
             tf.config.set_logical_device_configuration(
                 gpus[0],
-                [tf.config.LogicalDeviceConfiguration(memory_limit=1024)])
+                [tf.config.LogicalDeviceConfiguration(memory_limit=5120)])
             logical_gpus = tf.config.list_logical_devices('GPU')
             print(len(gpus), "Physical GPUs,", len(logical_gpus),
                   "Logical GPUs")
@@ -94,7 +94,7 @@ def config_gpu():
 @click.option("--config",
               type=click.Path(exists=True),
               default=default_config_path)
-@click.option("--gpu-id", type=click.STRING, default='3')
+@click.option("--gpu-id", type=click.STRING, default='2')
 @click.option("--n-rep", type=click.INT, default=10)
 @click.option("--split", type=click.INT, default=0)
 @click.option('--train-rep', is_flag=True)
