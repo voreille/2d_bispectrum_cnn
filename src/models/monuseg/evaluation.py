@@ -1,10 +1,14 @@
 import numpy as np
+import tensorflow as tf
 from skimage.measure import label
 from scipy.ndimage import watershed_ift
 
 
 def post_processing(y_pred):
-    y_pred_quantized = (y_pred.numpy() > 0.5).astype(np.uint8)
+    if type(y_pred) != np.ndarray:
+        y_pred_quantized = (y_pred.numpy() > 0.5).astype(np.uint8)
+    else:
+        y_pred_quantized = (y_pred > 0.5).astype(np.uint8)
     # y_pred_quantized = np.zeros_like(y_pred, dtype=np.uint8)
     # y_pred_quantized[..., 1] = (y_pred[..., 1] > 0.5).astype(np.uint8)
     # y_pred_quantized[..., 0] = (y_pred[..., 0] > 0.5).astype(np.uint8)
