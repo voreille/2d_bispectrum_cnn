@@ -247,7 +247,7 @@ def train_one_split(
 
         def log_prediction(epoch, logs):
             # Use the model to predict the values from the validation dataset.
-            val_pred = model.predict(val_images)
+            val_pred = model.predict(val_images, batch_size=1)
 
             # Log the confusion matrix as an image summary.
             with file_writer_image.as_default():

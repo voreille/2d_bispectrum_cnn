@@ -2,7 +2,7 @@ from functools import partial
 
 import tensorflow as tf
 import numpy as np
-from src.models.layers import get_lri_conv2d
+from src.models.layers import get_lri_conv2d, MaskedConv2D
 
 
 def get_model(model_name="Unet",
@@ -30,6 +30,8 @@ def get_model(model_name="Unet",
             n_harmonics=n_harmonics,
             radial_profile_type=radial_profile_type,
         ),
+        "MaskedUnet":
+        MaskedUnet,
     }
 
     if cosine_decay:
@@ -132,6 +134,59 @@ class Unet(UnetBase):
     def get_up_block(self, filters):
         return tf.keras.Sequential([
             tf.keras.layers.Conv2D(filters, self.kernel_size, padding="VALID"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Activation("relu"),
+        ])
+
+
+class MaskedUnet(UnetBase):
+    def __init__(self,
+                 *args,
+                 output_channels=3,
+                 last_activation="softmax",
+                 n_feature_maps=[8, 16, 32],
+                 **kwargs):
+        super().__init__(*args,
+                         output_channels=output_channels,
+                         last_activation=last_activation,
+                         n_feature_maps=n_feature_maps,
+                         **kwargs)
+        self.mask = np.array([
+            [0, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1],
+            [0, 1, 1, 1, 0],
+        ])
+
+    def get_down_block(self, filters, max_pool=True):
+        if max_pool:
+            return tf.keras.Sequential([
+                MaskedConv2D(filters,
+                             self.kernel_size,
+                             mask=self.mask,
+                             padding="VALID"),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.MaxPool2D(),
+                tf.keras.layers.Activation("relu"),
+            ])
+        else:
+            return tf.keras.Sequential([
+                MaskedConv2D(
+                    filters,
+                    self.kernel_size,
+                    padding="VALID",
+                    mask=self.mask,
+                ),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.Activation("relu"),
+            ])
+
+    def get_up_block(self, filters):
+        return tf.keras.Sequential([
+            MaskedConv2D(filters,
+                         self.kernel_size,
+                         mask=self.mask,
+                         padding="VALID"),
             tf.keras.layers.BatchNormalization(),
             tf.keras.layers.Activation("relu"),
         ])

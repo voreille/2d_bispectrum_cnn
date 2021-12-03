@@ -726,6 +726,68 @@ class ResidualLRILayer2D(tf.keras.layers.Layer):
             return self.bn_1(self.conv(x)) + x
 
 
+class MaskedConv2D(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters,
+                 kernel_size,
+                 strides=(1, 1),
+                 padding="valid",
+                 trainable=True,
+                 activation=None,
+                 name=None,
+                 dtype=None,
+                 dynamic=False,
+                 mask=None,
+                 **kwargs):
+        super().__init__(trainable=trainable,
+                         name=name,
+                         dtype=dtype,
+                         dynamic=dynamic,
+                         **kwargs)
+        self.filters = filters
+        self.kernel_size = kernel_size,
+        self.strides = strides
+        self.padding = padding
+        self.bias = self.add_weight(
+            shape=(self.filters, ),
+            initializer="zeros",
+            trainable=True,
+            name="bias_masked_conv2d",
+        )
+        self.activation = tf.keras.activations.get(activation)
+        self.mask = tf.reshape(mask, mask.shape + (1, 1))
+        if mask is None:
+            raise ValueError("HEY!!, provide a mask")
+
+    def build(self, input_shape):
+        limit = limit_glorot(input_shape[-1], self.filters)
+        self.w = self.add_weight(
+            shape=(
+                self.kernel_size,
+                self.kernel_size,
+                input_shape[-1],
+                self.filters,
+            ),
+            initializer=tf.keras.initializers.RandomUniform(minval=-limit,
+                                                            maxval=limit),
+            trainable=True,
+            name="kernel_masked_conv2d",
+        )
+
+    @property
+    def kernel(self):
+        return self.mask * self.w
+
+    def call(self, inputs, training=None):
+        return self.activation(
+            tf.nn.conv2d(
+                inputs,
+                self.kernel,
+                self.strides,
+                self.padding,
+            ) + self.bias)
+
+
 # @tf.function
 def conv2d_complex(input, filters, strides, **kwargs):
     out_channels = tf.shape(filters)[-1]
