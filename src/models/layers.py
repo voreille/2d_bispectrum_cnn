@@ -34,23 +34,23 @@ class SEBlock(tf.keras.layers.Layer):
 
 
 class BCHConv2D(tf.keras.layers.Layer):
-    def __init__(self,
-                 streams,
-                 kernel_size,
-                 n_harmonics=4,
-                 strides=1,
-                 padding='SAME',
-                 initializer="random_normal",
-                 use_bias=True,
-                 bias_initializer="zeros",
-                 radial_profile_type="complete",
-                 preactivation="sqrt",
-                 activation="linear",
-                 proj_activation="relu",
-                 proj_initializer="glorot_uniform",
-                 is_transpose=False,
-                 project=True,
-                 **kwargs):
+    def __init__(
+            self,
+            streams,
+            kernel_size,
+            n_harmonics=4,
+            strides=1,
+            padding='SAME',
+            initializer="random_normal",
+            use_bias=True,
+            bias_initializer="zeros",
+            radial_profile_type="complete",
+            activation="relu",  # RECENTLY Changed 20211203 !!! 
+            proj_activation="relu",
+            proj_initializer="glorot_uniform",
+            is_transpose=False,
+            project=True,
+            **kwargs):
         super().__init__(**kwargs)
         self.streams = streams
         self.n_harmonics = n_harmonics
@@ -130,7 +130,7 @@ class BCHConv2D(tf.keras.layers.Layer):
                 outputs.append(tf.math.real(bispectrum))
                 outputs.append(tf.math.imag(bispectrum))
         x = tf.concat(outputs, axis=-1)
-        x = tf.math.sign(x) * tf.math.log(1 + tf.math.abs(x))
+        # x = tf.math.sign(x) * tf.math.log(1 + tf.math.abs(x))
         if self.bias is not None:
             x = x + self.bias
         x = self.activation(x)
@@ -745,7 +745,7 @@ class MaskedConv2D(tf.keras.layers.Layer):
                          dynamic=dynamic,
                          **kwargs)
         self.filters = filters
-        self.kernel_size = kernel_size,
+        self.kernel_size = kernel_size
         self.strides = strides
         self.padding = padding
         self.bias = self.add_weight(
@@ -755,7 +755,8 @@ class MaskedConv2D(tf.keras.layers.Layer):
             name="bias_masked_conv2d",
         )
         self.activation = tf.keras.activations.get(activation)
-        self.mask = tf.reshape(mask, mask.shape + (1, 1))
+        self.mask = tf.reshape(tf.Variable(mask, dtype=tf.float32),
+                               mask.shape + (1, 1))
         if mask is None:
             raise ValueError("HEY!!, provide a mask")
 

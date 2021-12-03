@@ -146,17 +146,20 @@ class MaskedUnet(UnetBase):
                  last_activation="softmax",
                  n_feature_maps=[8, 16, 32],
                  **kwargs):
+
+        self.mask = np.array([
+            [0, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1],
+            [0, 1, 1, 1, 0],
+        ])
+
         super().__init__(*args,
                          output_channels=output_channels,
                          last_activation=last_activation,
                          n_feature_maps=n_feature_maps,
                          **kwargs)
-        self.mask = np.array([
-            [0, 1, 1, 1, 0],
-            [1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 0],
-        ])
 
     def get_down_block(self, filters, max_pool=True):
         if max_pool:
