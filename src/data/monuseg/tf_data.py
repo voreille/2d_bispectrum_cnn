@@ -197,11 +197,12 @@ def random_rotate(*images):
 
 
 def tf_random_crop(
-        image,
-        segmentation,
-        size=(256, 256),
-        rotation_angle=None,
-        filter_segmentation=False,
+    image,
+    segmentation,
+    size=(256, 256),
+    rotation_angle=None,
+    filter_segmentation=False,
+    random_brightness=False,
 ):
     _random_crop = lambda x, y: random_crop(
         x,
@@ -214,6 +215,8 @@ def tf_random_crop(
                                            (tf.float32, tf.float32))
     image.set_shape(size + (3, ))
     segmentation.set_shape(size + (3, ))
+    if random_brightness:
+        image = tf.image.random_brightness(image, 0.2)
     return image, segmentation
 
 

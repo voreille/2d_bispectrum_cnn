@@ -6,4 +6,4 @@ n_train: -1
 n_feature_maps: [8, 16, 32]
 patch_size: [60, 60]
 batch_size: 16
-radial_profile_type: "disks"
+radial_profile_type: "complete"

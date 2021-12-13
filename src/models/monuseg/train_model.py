@@ -17,7 +17,7 @@ from src.models.callbacks import EarlyStopping
 
 image_dir = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training/Images_normalized"
 path_indices = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/indices/monuseg.json"
-default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/maskedunet_default.yaml"
+default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/bispectunet_complete.yaml"
 
 DEBUG = False
 
@@ -49,7 +49,7 @@ def eval(ds=None, model=None, cropper=None):
     for x, y_true in ds.as_numpy_iterator():
         if cropper is not None:
             y_true = cropper(y_true).numpy()
-        y_pred = post_processing(model(x))
+        y_pred = post_processing(model(x, training=False))
         for s in range(y_pred.shape[0]):
             aij_list.append(
                 aggregated_jaccard_index(y_true[s, :, :, 0], y_pred[s, :, :]))
@@ -102,8 +102,9 @@ def config_gpu():
 @click.option("--output_path", type=click.Path(), default="models/MoNuSeg")
 @click.option("--n-harmonics", type=click.INT, default=-1)
 @click.option("--batch-size", type=click.INT, default=-1)
+@click.option("--radial-profile-type", type=click.FLOAT, default=None)
 def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
-         n_harmonics, batch_size):
+         n_harmonics, batch_size, radial_profile_type):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     config_gpu()
@@ -117,6 +118,9 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
     if batch_size > 0:
         params["batch_size"] = batch_size
 
+    if radial_profile_type is not None:
+        params["radial_profile_type"] = radial_profile_type
+
     model_name = params["model_name"]
     rotation = params["rotation"]
     n_harmonics = params["n_harmonics"]
@@ -127,6 +131,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
     output_name = (model_name + label + f"__rotation_{rotation}__" +
                    f"nh_{n_harmonics}__" + f"n_train_{n_train}__" +
                    f"psize_{patch_size[0]}x{patch_size[1]}__" +
+                   f"rtype_{params['radial_profile_type']}" +
                    datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     dir_path = output_path / output_name
     dir_path.mkdir()
@@ -178,6 +183,7 @@ def train_one_split(
     cosine_decay = params["cosine_decay"]
     batch_size = params["batch_size"]
     patch_size = tuple(params["patch_size"])
+    radial_profile_type = params["radial_profile_type"]
     cropper = tf.keras.layers.Cropping2D(cropping=(20, 20))
 
     with open(path_indices, "r") as f:
@@ -193,15 +199,16 @@ def train_one_split(
         rotation_angle = "right-angle"
     else:
         rotation_angle = None
-    ds_train = ds_train.map(lambda image, seg: tf_random_crop(
-        image,
-        seg,
-        rotation_angle=rotation_angle,
-        size=patch_size,
-    )).map(lambda image, seg: (
-        tf.image.random_brightness(image, max_delta=0.2),
-        seg,
-    )).batch(batch_size)
+    ds_train = ds_train.map(
+        lambda image, seg: tf_random_crop(
+            image,
+            seg,
+            rotation_angle=rotation_angle,
+            size=patch_size,
+            random_brightness=True,
+        ),
+        num_parallel_calls=16,
+    ).batch(batch_size)
 
     ds_val = get_dataset(id_list=indices_list[split]["val"])
     ds_val = ds_val.cache().batch(1)
@@ -217,6 +224,7 @@ def train_one_split(
                 f"split__{split}__" + f"nh_{n_harmonics}__" +
                 f"n_train_{n_train}__" +
                 f"psize_{patch_size[0]}x{patch_size[1]}__" +
+                f"rtype_{radial_profile_type}__" +
                 datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     callbacks = list()
@@ -286,6 +294,7 @@ def train_one_split(
         cosine_decay=cosine_decay,
         n_feature_maps=n_feature_maps,
         last_activation="softmax",
+        radial_profile_type=radial_profile_type,
         run_eagerly=False)
 
     model.fit(

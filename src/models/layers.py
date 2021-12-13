@@ -130,7 +130,7 @@ class BCHConv2D(tf.keras.layers.Layer):
                 outputs.append(tf.math.real(bispectrum))
                 outputs.append(tf.math.imag(bispectrum))
         x = tf.concat(outputs, axis=-1)
-        # x = tf.math.sign(x) * tf.math.log(1 + tf.math.abs(x))
+        x = tf.math.sign(x) * tf.math.log(1 + tf.math.abs(x))
         if self.bias is not None:
             x = x + self.bias
         x = self.activation(x)
