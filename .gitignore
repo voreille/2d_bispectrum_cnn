@@ -95,4 +95,5 @@ target/
 logs/
 reports/
 /models/
+/results/
 .snakemake/

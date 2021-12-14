@@ -74,14 +74,14 @@ def print_config(params, model, output_path=""):
         model.summary(print_fn=lambda s: print(s, file=f))
 
 
-def config_gpu():
+def config_gpu(memory_limit):
     gpus = tf.config.list_physical_devices('GPU')
     if gpus:
         # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
         try:
             tf.config.set_logical_device_configuration(
                 gpus[0],
-                [tf.config.LogicalDeviceConfiguration(memory_limit=5120)])
+                [tf.config.LogicalDeviceConfiguration(memory_limit=memory_limit)])
             logical_gpus = tf.config.list_logical_devices('GPU')
             print(len(gpus), "Physical GPUs,", len(logical_gpus),
                   "Logical GPUs")
