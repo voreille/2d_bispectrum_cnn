@@ -59,9 +59,11 @@ def evaluate_equivariance(
 
             results_dict.update({
                 f"RMSE_{-rot}deg_core":
-                rmse(preds[0, :, :, 1], pred_rotated[..., 0]),
+                rmse(preds[0, :, :, 0], pred_rotated[..., 0]),
                 f"RMSE_{-rot}deg_border":
                 rmse(preds[0, :, :, 1], pred_rotated[..., 1]),
+                f"RMSE_{-rot}deg_background":
+                rmse(preds[0, :, :, 2], pred_rotated[..., 2]),
                 f"dice_{-rot}deg":
                 dice(pp_preds[0, ...], pp_pred_rotated),
             })

@@ -10,7 +10,7 @@ from src.models.monuseg.models import get_model
 from src.models.monuseg.train_model import config_gpu
 from src.data.monuseg.utils import get_split
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 # config_gpu(20000)
 
 project_dir = Path(__file__).resolve().parents[3]
