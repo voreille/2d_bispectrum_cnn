@@ -77,7 +77,7 @@ def evaluate_equivariance(
 
 
 def rmse(x1, x2):
-    return np.sqrt(np.sum((x1 - x2)**2))
+    return np.sqrt(np.mean((x1 - x2)**2))
 
 
 def dice(x1, x2):

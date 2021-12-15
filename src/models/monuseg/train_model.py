@@ -79,9 +79,9 @@ def config_gpu(memory_limit):
     if gpus:
         # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
         try:
-            tf.config.set_logical_device_configuration(
-                gpus[0],
-                [tf.config.LogicalDeviceConfiguration(memory_limit=memory_limit)])
+            tf.config.set_logical_device_configuration(gpus[0], [
+                tf.config.LogicalDeviceConfiguration(memory_limit=memory_limit)
+            ])
             logical_gpus = tf.config.list_logical_devices('GPU')
             print(len(gpus), "Physical GPUs,", len(logical_gpus),
                   "Logical GPUs")
@@ -107,7 +107,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
          n_harmonics, batch_size, radial_profile_type):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
-    config_gpu()
+    # config_gpu()
     output_path = Path(output_path)
 
     with open(config, 'r') as f:

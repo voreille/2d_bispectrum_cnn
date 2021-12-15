@@ -1,9 +1,9 @@
 model_name: "Unet"
-rotation: False
+rotation: True
 n_harmonics: 0
 cosine_decay: False
 n_train: -1
-n_feature_maps: [8, 16, 32]
+n_feature_maps: [11, 22, 44]
 patch_size: [60, 60]
 batch_size: 16
 radial_profile_type: "None"
