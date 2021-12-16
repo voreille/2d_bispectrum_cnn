@@ -73,13 +73,13 @@ def evaluate_equivariance(
                 dice(pp_preds[i, ...], pp_preds[k, ...]),
             })
 
-        results = results.append(
-            {
-                "image_id": image_id,
-                **results_dict
-            },
-            ignore_index=True,
-        )
+            results = results.append(
+                {
+                    "image_id": image_id,
+                    **results_dict
+                },
+                ignore_index=True,
+            )
     return results
 
 

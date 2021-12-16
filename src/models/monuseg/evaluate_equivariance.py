@@ -5,23 +5,24 @@ from tqdm import tqdm
 import pandas as pd
 
 from src.models.monuseg.evaluation import evaluate_equivariance
-from src.models.monuseg.models_old import get_model
-# from src.models.monuseg.models import get_model
+# from src.models.monuseg.models_old import get_model
+from src.models.monuseg.models import get_model
 from src.models.monuseg.train_model import config_gpu
 from src.data.monuseg.utils import get_split
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-config_gpu(20000)
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# config_gpu(20000)
 
 project_dir = Path(__file__).resolve().parents[3]
-model_name = "BispectUnet__rotation_True__nh_8__n_train_-1__psize_60x60__20211202-173734"
-# model_name = "MaskedUnet__rotation_True__nh_0__n_train_-1__psize_60x60__20211212-222429"
+# model_name = "BispectUnet__rotation_True__nh_8__n_train_-1__psize_60x60__20211202-173734"
+model_name = "MaskedUnet__rotation_True__nh_0__n_train_-1__psize_60x60__20211212-222429"
 model_path = project_dir / f"models/MoNuSeg/{model_name}"
 
 
 def main():
     model = get_model(
-        model_name="BispectUnet",
+        # model_name="BispectUnet",
+        model_name="MaskedUnet",
         output_channels=3,
         n_harmonics=8,
         n_feature_maps=[8, 16, 32],
