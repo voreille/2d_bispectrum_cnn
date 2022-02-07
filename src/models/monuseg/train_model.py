@@ -12,12 +12,13 @@ import pandas as pd
 from src.models.monuseg.models import get_model
 from src.data.monuseg.tf_data import get_dataset, tf_random_crop
 from src.models.monuseg.evaluation import post_processing
-from src.models.monuseg.metrics import f_score, aggregated_jaccard_index
+from src.models.monuseg.metrics import (aggregated_jaccard_index,
+                                        confusion_terms)
 from src.models.callbacks import EarlyStopping
 
 image_dir = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training/Images_normalized"
 path_indices = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/indices/monuseg.json"
-default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/bispectunet_complete.yaml"
+default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/spectunet_default.yaml"
 
 DEBUG = False
 
@@ -44,21 +45,29 @@ def loss(y_true, y_pred, cropper=None):
 
 
 def eval(ds=None, model=None, cropper=None):
-    aij_list = list()
-    fscore_list = list()
+    scores_dict = {
+        "fscore": [],
+        "aij": [],
+        "recall": [],
+        "precision": [],
+    }
     for x, y_true in ds.as_numpy_iterator():
         if cropper is not None:
             y_true = cropper(y_true).numpy()
         y_pred = post_processing(model(x, training=False))
         for s in range(y_pred.shape[0]):
-            aij_list.append(
+            scores_dict["aij"].append(
                 aggregated_jaccard_index(y_true[s, :, :, 0], y_pred[s, :, :]))
-            fscore_list.append(f_score(y_true[s, :, :, 0], y_pred[s, :, :]))
+            fp, fn, tp = confusion_terms(y_true[s, :, :, 0], y_pred[s, :, :])
+            scores_dict["fscore"].append(tp / (tp + 0.5 * (fp + fn)))
+            scores_dict["recall"].append(tp / (tp + fn))
+            scores_dict["precision"].append(tp /
+                                            (tp + fp) if tp + fp != 0 else 0)
 
-    return np.mean(fscore_list), np.mean(aij_list)
+    return {k: np.mean(i) for k, i in scores_dict.items()}
 
 
-def print_config(params, model, output_path=""):
+def write_config_to_file(params, model, output_path=""):
     with open(output_path, "w") as f:
         print(
             28 * "=" + " CONFIG FILE " + 28 * "=" + "\n",
@@ -103,12 +112,16 @@ def config_gpu(memory_limit):
 @click.option("--n-harmonics", type=click.INT, default=-1)
 @click.option("--batch-size", type=click.INT, default=-1)
 @click.option("--radial-profile-type", type=click.FLOAT, default=None)
+@click.option("--epochs", type=click.INT, default=200)
 def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
-         n_harmonics, batch_size, radial_profile_type):
+         n_harmonics, batch_size, radial_profile_type, epochs):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     # config_gpu()
     output_path = Path(output_path)
+    if DEBUG:
+        train_rep = True
+        epochs = 1
 
     with open(config, 'r') as f:
         params = yaml.safe_load(f)
@@ -146,6 +159,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
                     params=params,
                     write_config=write_config,
                     dir_path=dir_path,
+                    epochs=epochs,
                 ),
                 ignore_index=True,
             )
@@ -161,6 +175,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
                 label=label,
                 write_config=write_config,
                 dir_path=dir_path,
+                epochs=epochs,
             ),
             ignore_index=True,
         )
@@ -174,6 +189,7 @@ def train_one_split(
     params=None,
     write_config=False,
     dir_path=None,
+    epochs=200,
 ):
     model_name = params["model_name"]
     rotation = params["rotation"]
@@ -266,8 +282,11 @@ def train_one_split(
             fscore_list = list()
             val_pred = post_processing(val_pred)
             for k in range(val_pred.shape[0]):
-                fscore_list.append(
-                    f_score(val_seg_instance[k, :, :, 0], val_pred[k, :, :]))
+                fp, fn, tp = confusion_terms(val_seg_instance[k, :, :, 0],
+                                             val_pred[k, :, :])
+
+                fscore_list.append(tp / (tp + 0.5 * (fp + fn)))
+
             val_fscore = np.mean(fscore_list)
             logs["val_fscore"] = val_fscore
             print(f"val_fscore: {val_fscore}")
@@ -299,28 +318,26 @@ def train_one_split(
 
     model.fit(
         x=ds_train,
-        epochs=200,
+        epochs=epochs,
         validation_data=ds_val,
         callbacks=callbacks,
     )
 
     if write_config and not DEBUG:
-        print_config(params, model, output_path=dir_path / "config.txt")
+        write_config_to_file(
+            params,
+            model,
+            output_path=dir_path / "config.txt",
+        )
 
     if not DEBUG:
         dir_to_save_weights = dir_path / "weights" / f"split_{split}" / "final"
         model.save_weights(dir_to_save_weights)
-    test_fscore, test_aij = eval(ds=ds_test, model=model, cropper=cropper)
-    val_fscore, val_aij = eval(ds=ds_val_instance,
-                               model=model,
-                               cropper=cropper)
-    return {
-        "split": split,
-        "test_aij": test_aij,
-        "test_fscore": test_fscore,
-        "val_aij": val_aij,
-        "val_fscore": val_fscore,
-    }
+    test_scores = eval(ds=ds_test, model=model, cropper=cropper)
+    val_scores = eval(ds=ds_val_instance, model=model, cropper=cropper)
+    test_scores = {f"test_{k}": i for k, i in test_scores.items()}
+    val_scores = {f"val_{k}": i for k, i in val_scores.items()}
+    return {"split": split, **test_scores, **val_scores}
 
 
 if __name__ == '__main__':
