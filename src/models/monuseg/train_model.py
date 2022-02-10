@@ -103,10 +103,10 @@ def config_gpu(memory_limit):
 @click.option("--config",
               type=click.Path(exists=True),
               default=default_config_path)
-@click.option("--gpu-id", type=click.STRING, default='2')
+@click.option("--gpu-id", type=click.STRING, default='3')
 @click.option("--n-rep", type=click.INT, default=10)
 @click.option("--split", type=click.INT, default=0)
-@click.option('--train-rep', is_flag=True)
+@click.option('--train-rep/--no-train-rep', default=True)
 @click.option('--label', type=click.STRING, default="")
 @click.option("--output_path", type=click.Path(), default="models/MoNuSeg")
 @click.option("--n-harmonics", type=click.INT, default=-1)
@@ -151,6 +151,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
 
     write_config = True
     if train_rep:
+        print(f"STARTING {n_rep} repetitions")
         for k in range(n_rep):
             result = result.append(
                 train_one_split(

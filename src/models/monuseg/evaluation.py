@@ -1,3 +1,4 @@
+from operator import pos
 from pathlib import Path
 from itertools import combinations
 
@@ -32,7 +33,88 @@ def post_processing(y_pred):
     return np.stack(output, axis=0)
 
 
+def rotate_batch(images, angle=90):
+    output = np.zeros_like(images)
+    for n in range(images.shape[0]):
+        output[n, ...] = rotate(images[n, ...], angle=angle, reshape=False)
+    return output
+
+
+def disk(size):
+    output = np.zeros((size, size))
+    x = np.linspace(-size // 2, size // 2, num=size)
+    x, y = np.meshgrid(x, x, indexing="xy")
+    radius = np.sqrt(x**2 + y**2)
+    output[radius <= size // 2 + 1] = 1
+    return output
+
+
 def evaluate_equivariance(
+    model,
+    id_list=None,
+    data_path="/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training",
+    n_angles=4,
+    mask=True,
+):
+
+    delta_deg = 360 / n_angles
+    rotations = [k * delta_deg for k in range(n_angles)]
+
+    data_path = Path(data_path).resolve()
+    image_dir = str(data_path / "Images_normalized")
+    image_ids = [f.stem for f in Path(image_dir).rglob("*.tiff")]
+    if id_list is not None:
+        image_ids = [i for i in image_ids if i in id_list]
+
+    results = pd.DataFrame()
+    for image_id in tqdm(image_ids):
+        path_image = tf.strings.join([image_dir, "/", image_id, ".tiff"])
+        image = load_image_tif(path_image, normalizing_factor=255.0).numpy()
+        preds = list()
+        pp_preds = list()
+        m = None
+        for r in rotations:
+            pred = rotate_batch(
+                model(rotate_batch(image[np.newaxis, ...], r)),
+                -r,
+            )
+            if m is None and mask:
+                m = disk(pred.shape[1])
+
+            pp_pred = post_processing(pred)
+            preds.append(pred)
+            pp_preds.append(pp_pred != 0)
+
+        for r1, r2 in combinations(range(n_angles), 2):
+            pred_1 = preds[r1]
+            pred_2 = preds[r2]
+
+            pp_pred_1 = pp_preds[r1]
+            pp_pred_2 = pp_preds[r2]
+
+            results_dict = {
+                "rot_pair": (rotations[r1], rotations[r2]),
+                "RMSE_core":
+                rmse(pred_1[0, ..., 0], pred_2[0, ..., 0], mask=m),
+                "RMSE_border":
+                rmse(pred_1[0, ..., 1], pred_2[0, ..., 1], mask=m),
+                "RMSE_background":
+                rmse(pred_1[0, ..., 2], pred_2[0, ..., 2], mask=m),
+                "dice":
+                dice(pp_pred_1[0, ...], pp_pred_2[0, ...], mask=m),
+            }
+
+            results = results.append(
+                {
+                    "image_id": image_id,
+                    **results_dict
+                },
+                ignore_index=True,
+            )
+    return results
+
+
+def evaluate_equivariance_old(
     model,
     id_list=None,
     data_path="/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training",
@@ -83,9 +165,18 @@ def evaluate_equivariance(
     return results
 
 
-def rmse(x1, x2):
-    return np.sqrt(np.mean((x1 - x2)**2))
+def rmse(x1, x2, mask=None):
+    square_diff = (x1 - x2)**2
+    if mask is not None:
+        return np.sqrt(np.mean(square_diff[mask != 0]))
+    else:
+        return np.sqrt(np.mean(square_diff))
 
 
-def dice(x1, x2):
-    return 2 * np.sum(np.logical_and(x1, x2)) / (np.sum(x1) + np.sum(x2))
+def dice(x1, x2, mask=None):
+    if mask is not None:
+        return 2 * np.sum((x1 != 0) & (x2 != 0) & (mask != 0)) / (np.sum(
+            (x1 != 0) & (mask != 0)) + np.sum((x2 != 0) & (mask != 0)))
+    else:
+        return 2 * np.sum((x1 != 0) & (x2 != 0)) / (np.sum((x1 != 0)) + np.sum(
+            (x2 != 0)))

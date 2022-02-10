@@ -45,8 +45,8 @@ class BCHConv2D(tf.keras.layers.Layer):
             use_bias=True,
             bias_initializer="zeros",
             radial_profile_type="complete",
-            activation="relu",  # RECENTLY Changed 20211203 !!! 
-            proj_activation="linear",
+            activation="linear",  # RECENTLY Changed 20211203 !!! 
+            proj_activation="relu",
             proj_initializer="glorot_uniform",
             is_transpose=False,
             project=True,
@@ -150,7 +150,7 @@ class ECHConv2D(tf.keras.layers.Layer):
                  use_bias=True,
                  bias_initializer="zeros",
                  radial_profile_type="complete",
-                 activation="relu",
+                 activation="linear",
                  proj_activation="relu",
                  proj_initializer="glorot_uniform",
                  is_transpose=False,

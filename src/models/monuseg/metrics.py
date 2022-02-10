@@ -46,6 +46,43 @@ def aggregated_jaccard_index(y_true, y_pred):
     return overall_correct_count / union_pixel_count
 
 
+def confusion_indices(y_true, y_pred):
+    y_true_indices = np.unique(y_true)
+    y_pred_indices = np.unique(y_pred)
+
+    y_true_indices = np.delete(y_true_indices, y_true_indices == 0)
+    y_pred_indices = np.delete(y_pred_indices, y_pred_indices == 0)
+
+    matched_pred_indices = list()
+    unmatched_true_indices = list()
+    for i in y_true_indices:
+        nuclei_mask = y_true == i
+        y_pred_match = nuclei_mask * y_pred
+        nuclei_area = np.sum(nuclei_mask)
+
+        if np.sum(y_pred_match) == 0:
+            unmatched_true_indices.append(i)
+            continue
+        else:
+            pred_nuclei_indices = np.unique(y_pred_match)
+            pred_nuclei_indices = np.delete(pred_nuclei_indices,
+                                            pred_nuclei_indices == 0)
+            matched = False
+            for j in pred_nuclei_indices:
+                if j not in matched_pred_indices:
+                    if np.sum(y_pred_match == j) > 0.5 * nuclei_area:
+                        matched_pred_indices.append(j)
+                        matched = True
+                        break
+
+            if not matched:
+                unmatched_true_indices.append(i)
+
+    unmatched_pred_indices = list(
+        set(matched_pred_indices) - set(y_pred_indices))
+    return matched_pred_indices, unmatched_pred_indices, unmatched_true_indices
+
+
 def confusion_terms(y_true, y_pred):
     y_true_indices = np.unique(y_true)
     y_pred_indices = np.unique(y_pred)
@@ -74,7 +111,7 @@ def confusion_terms(y_true, y_pred):
                         and j not in matched_pred_indices):
                     true_positive += 1
                     matched_pred_indices.append(j)
-                    continue
+                    break
     false_positive = n_pred_nuclei - true_positive
     false_negative = n_true_nuclei - true_positive
 
