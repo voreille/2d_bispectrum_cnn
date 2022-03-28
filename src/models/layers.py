@@ -45,7 +45,7 @@ class BCHConv2D(tf.keras.layers.Layer):
             use_bias=True,
             bias_initializer="zeros",
             radial_profile_type="complete",
-            activation="linear",  # RECENTLY Changed 20211203 !!! 
+            activation="linear",  # RECENTLY Changed 20211203 originally linear then relu !!! 
             proj_activation="relu",
             proj_initializer="glorot_uniform",
             is_transpose=False,

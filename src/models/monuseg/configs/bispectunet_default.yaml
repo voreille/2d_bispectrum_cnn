@@ -1,5 +1,5 @@
 model_name: "BispectUnet"
-rotation: False
+rotation: True
 n_harmonics: 8
 cosine_decay: False
 n_train: -1

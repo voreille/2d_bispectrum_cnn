@@ -113,8 +113,9 @@ def config_gpu(memory_limit):
 @click.option("--batch-size", type=click.INT, default=-1)
 @click.option("--radial-profile-type", type=click.FLOAT, default=None)
 @click.option("--epochs", type=click.INT, default=200)
+@click.option("--learning-rate", type=click.FLOAT, default=1e-3)
 def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
-         n_harmonics, batch_size, radial_profile_type, epochs):
+         n_harmonics, batch_size, radial_profile_type, epochs, learning_rate):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
     # config_gpu()
@@ -143,6 +144,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
     result = pd.DataFrame()
     output_name = (model_name + label + f"__rotation_{rotation}__" +
                    f"nh_{n_harmonics}__" + f"n_train_{n_train}__" +
+                   f"lr_{learning_rate}__" +
                    f"psize_{patch_size[0]}x{patch_size[1]}__" +
                    f"rtype_{params['radial_profile_type']}" +
                    datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -161,6 +163,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
                     write_config=write_config,
                     dir_path=dir_path,
                     epochs=epochs,
+                    learning_rate=learning_rate,
                 ),
                 ignore_index=True,
             )
@@ -177,6 +180,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
                 write_config=write_config,
                 dir_path=dir_path,
                 epochs=epochs,
+                learning_rate=learning_rate,
             ),
             ignore_index=True,
         )
@@ -191,6 +195,7 @@ def train_one_split(
     write_config=False,
     dir_path=None,
     epochs=200,
+    learning_rate=1e-3,
 ):
     model_name = params["model_name"]
     rotation = params["rotation"]
@@ -239,7 +244,7 @@ def train_one_split(
 
     dir_name = (model_name + label + f"__rotation_{rotation}__" +
                 f"split__{split}__" + f"nh_{n_harmonics}__" +
-                f"n_train_{n_train}__" +
+                f"n_train_{n_train}__" + f"lr_{learning_rate}__" +
                 f"psize_{patch_size[0]}x{patch_size[1]}__" +
                 f"rtype_{radial_profile_type}__" +
                 datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -315,7 +320,9 @@ def train_one_split(
         n_feature_maps=n_feature_maps,
         last_activation="softmax",
         radial_profile_type=radial_profile_type,
-        run_eagerly=False)
+        run_eagerly=False,
+        lr=learning_rate,
+    )
 
     model.fit(
         x=ds_train,

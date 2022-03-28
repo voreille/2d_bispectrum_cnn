@@ -13,6 +13,7 @@ def get_model(model_name="Unet",
               cosine_decay=True,
               run_eagerly=False,
               n_feature_maps=[8, 16, 32],
+              lr=1e-3,
               last_activation="sigmoid",
               radial_profile_type="disks"):
     model_dict = {
@@ -35,17 +36,17 @@ def get_model(model_name="Unet",
     }
 
     if cosine_decay:
-        lr = tf.keras.experimental.CosineDecayRestarts(
-            1e-3,
+        lr_cosine = tf.keras.experimental.CosineDecayRestarts(
+            lr,
             4500,
             t_mul=2.0,
             m_mul=1.0,
             alpha=0.0,
         )
 
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr_cosine)
     else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
 
     model = model_dict[model_name](
         output_channels=output_channels,
