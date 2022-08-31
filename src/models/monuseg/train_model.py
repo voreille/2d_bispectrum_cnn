@@ -9,16 +9,18 @@ import click
 import yaml
 import pandas as pd
 
-from src.models.monuseg.models import get_model
+from src.models.monuseg.models_fixed import get_model
 from src.data.monuseg.tf_data import get_dataset, tf_random_crop
 from src.models.monuseg.evaluation import post_processing
 from src.models.monuseg.metrics import (aggregated_jaccard_index,
                                         confusion_terms)
 from src.models.callbacks import EarlyStopping
 
-image_dir = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/raw/MoNuSeg2018Training/Images_normalized"
-path_indices = "/home/valentin/python_wkspce/2d_bispectrum_cnn/data/indices/monuseg.json"
-default_config_path = "/home/valentin/python_wkspce/2d_bispectrum_cnn/src/models/monuseg/configs/spectunet_default.yaml"
+project_dir = Path(__file__).resolve().parents[3]
+
+image_dir = project_dir / "data/raw/MoNuSeg2018Training/Images_normalized"
+path_indices = project_dir / "data/indices/monuseg.json"
+default_config_path = project_dir / "src/models/monuseg/configs/unet_default_fixed.yaml"
 
 DEBUG = False
 
@@ -164,6 +166,7 @@ def main(config, gpu_id, n_rep, split, train_rep, output_path, label,
                     dir_path=dir_path,
                     epochs=epochs,
                     learning_rate=learning_rate,
+                    n_patches_per_epoch=params["n_patches_per_epoch"],
                 ),
                 ignore_index=True,
             )
@@ -196,6 +199,7 @@ def train_one_split(
     dir_path=None,
     epochs=200,
     learning_rate=1e-3,
+    n_patches_per_epoch=209,
 ):
     model_name = params["model_name"]
     rotation = params["rotation"]
@@ -212,8 +216,8 @@ def train_one_split(
         indices_list = json.load(f)
 
     ds_train = get_dataset(id_list=indices_list[split]["train"])
-    ds_train = ds_train.cache().repeat(int(np.ceil(1000**2 /
-                                                   patch_size[0]**2)))
+    ds_train = ds_train.cache().repeat(n_patches_per_epoch //
+                                       len(indices_list[split]["train"]))
 
     # ds_train = ds_train.cache().repeat(1)
 

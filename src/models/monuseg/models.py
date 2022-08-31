@@ -63,7 +63,65 @@ def get_model(model_name="Unet",
     return model
 
 
+class UnetBaseFixed(tf.keras.Model):
+
+    def __init__(self,
+                 *args,
+                 output_channels=3,
+                 last_activation="softmax",
+                 n_feature_maps=[8, 16, 32],
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.kernel_size = 5
+        self.conv_1 = self.get_conv_block(n_feature_maps[0])
+        self.conv_2 = self.get_conv_block(n_feature_maps[0])
+        self.conv_3 = self.get_conv_block(n_feature_maps[0])
+        self.conv_4 = self.get_conv_block(n_feature_maps[0])
+        self.conv_5 = self.get_conv_block(n_feature_maps[0])
+
+        self.down_sampling_1 = tf.keras.layers.MaxPool2D()
+        self.down_sampling_2 = tf.keras.layers.MaxPool2D()
+
+        self.last = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(3, 1, activation="softmax", padding='SAME'),
+        ])
+
+        self.crop_1 = tf.keras.layers.Cropping2D(cropping=(2, 2))
+        self.crop_2 = tf.keras.layers.Cropping2D(cropping=(8, 8))
+        self.upsampling_1 = tf.keras.layers.UpSampling2D(
+            interpolation="bilinear")
+        self.upsampling_2 = tf.keras.layers.UpSampling2D(
+            interpolation="bilinear")
+
+    def get_conv_block(self, filters):
+        raise NotImplementedError()
+
+    def call(self, inputs, training=None):
+        x1 = self.conv_1(inputs, training=training)
+        x2 = self.conv_2(self.down_sampling_1(x1), training=training)
+        x3 = self.conv_3(self.down_sampling_2(x2), training=training)
+
+        x4 = self.conv_4(
+            tf.concat([
+                self.upsampling_1(x3),
+                self.crop_1(x2),
+            ], axis=-1),
+            training=training,
+        )
+
+        x5 = self.conv_5(
+            tf.concat([
+                self.upsampling_2(x3),
+                self.crop_2(x2),
+            ], axis=-1),
+            training=training,
+        )
+
+        return self.last(x5, training=training)
+
+
 class UnetBase(tf.keras.Model):
+
     def __init__(self,
                  *args,
                  output_channels=3,
@@ -111,6 +169,7 @@ class UnetBase(tf.keras.Model):
 
 
 class Unet(UnetBase):
+
     def get_down_block(self, filters, max_pool=True):
         if max_pool:
             return tf.keras.Sequential([
@@ -141,6 +200,7 @@ class Unet(UnetBase):
 
 
 class MaskedUnet(UnetBase):
+
     def __init__(self,
                  *args,
                  output_channels=3,
@@ -197,6 +257,7 @@ class MaskedUnet(UnetBase):
 
 
 class LRIUnetBase(UnetBase):
+
     def __init__(self,
                  *args,
                  output_channels=1,
@@ -247,12 +308,14 @@ class LRIUnetBase(UnetBase):
 
 
 class SpectUnet(LRIUnetBase):
+
     def __init__(self, *args, output_channels=1, **kwargs):
         self.kind = "spectrum"
         super().__init__(*args, output_channels=output_channels, **kwargs)
 
 
 class BispectUnet(LRIUnetBase):
+
     def __init__(self, *args, output_channels=1, **kwargs):
         self.kind = "bispectrum"
         super().__init__(*args, output_channels=output_channels, **kwargs)
